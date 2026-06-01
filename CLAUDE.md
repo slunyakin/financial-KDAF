@@ -50,18 +50,21 @@ finance_analytics/
 ## Tech stack
 
 - **Language:** Python
-- **Orchestration framework:** Langchain or Strands (decision pending — evaluate trade-offs before committing)
+- **Orchestration framework:** LangChain + LangGraph (decided — replaces Strands; runs locally in Docker Compose, open source, maps directly to the Supervisor→Agent StateGraph pattern)
 - **Cloud:** AWS Agent Core
 - **Knowledge graph:** Neo4j (with vector search for embeddings)
-- **Data lake:** S3 (Parquet/Delta), queried via Redshift/DuckDB/Spark/Trino
-- **Cache:** Redis (5-minute TTL on query results)
+- **Data lake:** S3 (Parquet/Delta); v1 query engine is **DuckDB** (local/MotherDuck); Redshift is the scale-out path for v2
+- **Execution tools:** Python REPL / code executor required in the agent chain — all 5 golden evaluation cases require mathematical solvers (LP optimizer, DCF, elasticity solver, sequencing algorithm, delta engine) beyond what SQL can express
+- **Cache:** Redis (5-minute TTL on query results and KG context fetches)
 
 ## Key constraints
 
 - **Do not route performance-critical paths through MCP** — Neo4j metadata lookups, SQL generation context, and cache checks must use direct drivers.
-- **Connection pooling is critical** — Neo4j requires 200+ connections; Redshift pool must handle 500+ concurrent users.
+- **Connection pooling is critical** — Neo4j requires 200+ connections; Redshift pool (v2) must handle 500+ concurrent users.
 - The Supervisor must check Redis cache before dispatching to any execution engine.
 - Business rule validation against Neo4j must happen before returning results to the user.
+- **The Python executor tool runs sandboxed** — generated solver code must never have filesystem, network, or shell access; use RestrictedPython or a subprocess sandbox.
+- **Evaluation harness is the source of truth** — all agent chain changes must be validated against the 5 golden test cases in `data/eval/golden_dataset.yaml` before merge.
 
 ## Agent skills
 
