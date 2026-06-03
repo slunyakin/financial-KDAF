@@ -23,6 +23,16 @@ class DataLakeConnector(ABC):
         ...
 
     @abstractmethod
+    async def schema_description(self) -> str:
+        """Return a markdown description of available tables and columns.
+
+        Used by the Text-to-SQL agent to ground SQL generation. Each connector
+        produces this from INFORMATION_SCHEMA queries or a static fixture.
+        The Postgres demo connector returns the golden dataset schema.
+        """
+        ...
+
+    @abstractmethod
     async def close(self) -> None:
         """Release connection pool resources gracefully."""
         ...

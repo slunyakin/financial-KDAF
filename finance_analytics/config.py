@@ -24,6 +24,10 @@ class Settings(BaseSettings):
     JWT_SECRET: str = "change-me-in-production"
     JWT_ALGORITHM: str = "HS256"
 
+    # LLM — default to latest capable model; override per deployment
+    LLM_MODEL: str = "claude-sonnet-4-6"
+    LLM_TEMPERATURE: float = 0.0
+
     # PythonExecutor subprocess timeout
     SOLVER_TIMEOUT_SECONDS: float = 30.0
 
