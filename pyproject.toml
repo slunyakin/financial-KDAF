@@ -1,0 +1,58 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "financial-kdaf"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    # Orchestration
+    "langchain>=0.3",
+    "langgraph>=0.2",
+    # API
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "pydantic>=2.7",
+    "pydantic-settings>=2.3",
+    # Auth
+    "PyJWT>=2.8",
+    # Knowledge graph
+    "neo4j>=5.20",
+    # Data connectors
+    "asyncpg>=0.29",        # Postgres demo connector
+    "redis[hiredis]>=5.0",  # Cache
+    # Solver dependencies (allowed in sandbox)
+    "numpy>=1.26",
+    "scipy>=1.13",
+    "pandas>=2.2",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "pytest-asyncio>=0.23",
+    "pytest-cov>=5",
+    "ruff>=0.4",
+    "mypy>=1.10",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "S"]
+ignore = [
+    "S101",  # assert statements allowed in tests
+    "S102",  # exec allowed in sandbox harness
+]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+ignore_missing_imports = true
