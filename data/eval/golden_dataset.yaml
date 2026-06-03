@@ -1,0 +1,462 @@
+# Golden Evaluation Dataset — financial-KDAF v1
+# Source: design doc Appendix A (2026-05-16) + engineering review corrections (2026-06-02)
+# All 5 test cases require the full agent chain: Supervisor → Refiner → Text-to-Cypher
+# → Text-to-SQL → PythonExecutor → Validator → Reflection
+# Authoritative spec: ~/.gstack/projects/slunyakin-financial-KDAF/ceo-plans/2026-05-31-financial-kdaf-v1.md
+
+version: "1"
+dataset_id: "financial-kdaf-golden-v1"
+created: "2026-06-02"
+
+test_cases:
+
+  - id: TC1
+    name: "The Margin Recovery Optimization"
+    category: exploratory
+    requires_solver: true
+
+    question: >
+      What drove the 14% unfavorable gross margin variance in our APAC Enterprise segment
+      last quarter, and based on our historical price elasticity in that region, what is the
+      exact pricing increase required to recover this margin without triggering a modeled
+      volume drop of more than 5%?
+
+    required_graph_paths:
+      - path: "Segment{name:'APAC Enterprise'}->[:HAS_FINANCIALS]->Ledger{variance:-0.14}"
+        purpose: "Gross margin variance amount"
+      - path: "Segment{name:'APAC Enterprise'}->[:HAS_METRIC]->Elasticity{coefficient:-1.2}"
+        purpose: "Price elasticity coefficient for volume impact calculation"
+      - path: "Segment{name:'APAC Enterprise'}->[:RESTRICTED_BY]->Guardrail{competitor_ceiling_delta:0.06}"
+        purpose: "Maximum allowable price increase relative to competitor ceiling"
+
+    cypher_context_nodes:
+      - label: BusinessRule
+        match_criteria: "rule applies to APAC Enterprise margin calculation"
+        purpose: "Intercompany freight exclusion rule and margin definition"
+      - label: KnownAnomaly
+        match_criteria: "APAC Q4 bonus accrual opex spike"
+        purpose: "Known one-time cost that inflates opex in the variance period"
+
+    sql_tables:
+      - table: revenue
+        columns: [segment, quarter, year, amount]
+      - table: cogs
+        columns: [segment, quarter, year, amount]
+      - table: opex
+        columns: [segment, quarter, year, category, amount, is_discretionary]
+
+    execution_tool:
+      type: lp_optimizer
+      description: "Maximize price increase ΔP subject to elasticity and volume constraints"
+      inputs:
+        elasticity_coefficient: -1.2     # from Elasticity node (cypher_context)
+        volume_drop_limit: 0.05          # 5% volume loss ceiling (from question)
+        competitor_ceiling_delta: 0.06   # from Guardrail node (cypher_context)
+        margin_gap: 0.14                 # from Ledger node (cypher_context)
+      solver_logic: >
+        # ΔVolume = elasticity_coefficient × ΔP
+        # Constraint: abs(ΔVolume) <= volume_drop_limit
+        # Constraint: ΔP <= competitor_ceiling_delta
+        # Maximize: ΔP
+      expected_result:
+        price_increase_pct: 0.041        # 4.1% price increase
+        volume_impact_pct: -0.0492       # -4.92% volume drop (within 5% limit)
+        margin_recovered_pct: 0.14       # full margin recovery confirmed
+
+    expected_output:
+      executive_summary: >
+        The 14% unfavorable gross margin variance in APAC Enterprise was driven by [SQL-derived
+        cost breakdown]. Based on the historical price elasticity coefficient of -1.2 for this
+        segment, a 4.1% price increase is required to recover the full margin. This produces a
+        modeled 4.92% volume drop — within the 5% threshold. The competitor ceiling guardrail
+        of +6% is not breached.
+      key_metrics:
+        price_increase_required: "4.1%"
+        projected_volume_impact: "-4.92%"
+        competitor_ceiling_clearance: "1.9pp headroom"
+      citations:
+        - source_table: revenue
+          excerpt: "APAC Enterprise Q4 revenue and segment margin calculation"
+        - source_table: cogs
+          excerpt: "COGS breakdown for gross margin variance attribution"
+        - business_rule_id: "BR-APAC-FREIGHT-001"
+          excerpt: "Intercompany freight charges excluded from gross margin per policy"
+
+    data_sources:
+      - "SAP ERP"
+      - "Salesforce Win/Loss Pricing Logs"
+
+    confidence_threshold: 0.7
+    validation_checks:
+      - "price_increase_pct is between 0.03 and 0.06"
+      - "abs(volume_impact_pct) <= 0.05"
+      - "at least 1 BusinessRule cited"
+      - "SQL result is non-empty"
+
+  - id: TC2
+    name: "The Churn-Constrained Revenue Capture"
+    category: exploratory
+    requires_solver: true
+
+    question: >
+      Identify all global corporate accounts with unlinked subsidiaries purchasing at different
+      discount tiers. Calculate total annualized ARR leakage, and generate a sequenced
+      12-month consolidation plan that minimises churn risk.
+
+    required_graph_paths:
+      - path: "LegalEntity{type:'Parent'}->[:OWNS_SUBSIDIARY]->LegalEntity{type:'Subsidiary'}"
+        purpose: "Corporate hierarchy — identify accounts with unlinked subs"
+      - path: "LegalEntity->[:HELD_BY]->Contract{discount, arr, sku}"
+        purpose: "Discount tier and ARR per entity for leakage calculation"
+      - path: "LegalEntity->[:HAS_TELEMETRY]->HealthIndex{score, status}"
+        purpose: "Churn risk signal — low health scores delay consolidation"
+      - path: "LegalEntity->[:RENEWS_ON]->Calendar{date, event_type:'renewal'}"
+        purpose: "Renewal date for sequencing (consolidate close to renewal, not distant)"
+
+    cypher_context_nodes:
+      - label: BusinessRule
+        match_criteria: "consolidation sequencing policy sub-60 health block"
+        purpose: "Accounts with HealthIndex < 60 must not be consolidated — churn risk too high"
+      - label: KnownAnomaly
+        match_criteria: "AeroGermany subsidiary discount tier mismatch"
+        purpose: "Known account with largest ARR leakage"
+
+    sql_tables:
+      - table: contracts
+        columns: [legal_entity_id, parent_entity_id, discount_tier, arr, sku, renewal_date]
+      - table: health_scores
+        columns: [legal_entity_id, health_score, status, as_of_date]
+
+    execution_tool:
+      type: sequencing_algorithm
+      description: >
+        Priority-rank all consolidation candidates by health-weighted urgency.
+        Block accounts with HealthIndex < 60.
+      inputs:
+        priority_formula: "(health_score / 100) * (1 / days_to_renewal)"
+        health_block_threshold: 60
+      expected_result:
+        consolidation_sequence:
+          - account: "AeroGermany"
+            quarter: "Q3"
+            health_score: 88
+            days_to_renewal: 45
+            arr_leakage: 280000
+          - account: "AeroJapan"
+            quarter: "Q1-2027"
+            health_score: 52
+            days_to_renewal: 180
+            note: "Deferred — health score below 60 block threshold"
+        total_arr_leakage_annualized: 1400000  # sum across all identified accounts
+
+    expected_output:
+      executive_summary: >
+        [N] global corporate accounts have unlinked subsidiaries on different discount tiers,
+        representing $[X] in total annualized ARR leakage. The priority consolidation sequence
+        leads with AeroGermany in Q3 (health 88, renewal in 45 days). AeroJapan is deferred
+        to Q1 2027 — health score 52 is below the sub-60 consolidation block threshold.
+      key_metrics:
+        accounts_identified: "≥2"
+        total_arr_leakage_annualized: "≥$1M"
+        deferred_accounts_reason: "health score < 60"
+      citations:
+        - source_table: contracts
+          excerpt: "Discount tier and ARR per legal entity"
+        - source_table: health_scores
+          excerpt: "HealthIndex scores used for churn risk sequencing"
+        - business_rule_id: "BR-CONSOL-HEALTH-001"
+          excerpt: "Accounts with HealthIndex < 60 blocked from consolidation per policy"
+
+    data_sources:
+      - "Dun & Bradstreet (corporate hierarchy)"
+      - "Salesforce CRM"
+      - "Gainsight"
+
+    confidence_threshold: 0.7
+    validation_checks:
+      - "at least 2 parent-subsidiary account pairs identified"
+      - "total_arr_leakage_annualized > 0"
+      - "AeroJapan deferred (health_score < 60)"
+      - "at least 1 BusinessRule cited"
+
+  - id: TC3
+    name: "The Covenant Defense Program"
+    category: deep_thinking
+    requires_solver: true
+
+    question: >
+      If our primary logistics vendor increases freight rates by 12% next quarter, will the
+      consolidated impact breach our 3.5x net debt-to-EBITDA covenant? If so, which levers
+      must we activate to maintain 0.2x headroom?
+
+    required_graph_paths:
+      - path: "Company->[:BOUND_BY]->Covenant{metric:'net_debt_to_ebitda', limit:3.5}"
+        purpose: "Covenant limit and metric definition"
+      - path: "Company->[:HAS_BUDGET]->OperatingExpense{isDiscretionary:true}"
+        purpose: "Discretionary opex levers available for cost cuts"
+      - path: "Company->[:HAS_POLICY]->WorkingCapital{metric:'DPO', current:30, max_legal:45}"
+        purpose: "DPO extension lever — cash flow improvement without P&L impact"
+      - path: "Vendor{name:'primary_logistics'}->[:PROVIDES]->Surcharge{percentage:0.12}"
+        purpose: "12% freight rate increase — the shock input"
+
+    cypher_context_nodes:
+      - label: BusinessRule
+        match_criteria: "covenant ratio calculation net debt EBITDA"
+        purpose: "Exact formula for net debt-to-EBITDA including adjustment items"
+      - label: BusinessRule
+        match_criteria: "DPO extension maximum legal limit payable terms"
+        purpose: "DPO max 45 days — legal constraint on working capital lever"
+      - label: KnownAnomaly
+        match_criteria: "Q4 freight rate seasonal spike logistics"
+        purpose: "Historical context — freight spike not new, board precedent exists"
+
+    sql_tables:
+      - table: ebitda_components
+        columns: [quarter, revenue, cogs, opex_total, opex_discretionary, ebitda]
+      - table: balance_sheet
+        columns: [quarter, gross_debt, cash, net_debt]
+      - table: vendor_costs
+        columns: [vendor_id, service_type, quarterly_cost, rate_change_pct]
+
+    execution_tool:
+      type: lp_solver
+      description: >
+        Given freight shock impact on EBITDA, find minimum-cost lever combination
+        to restore net_debt_to_ebitda <= 3.3 (limit 3.5 minus 0.2 headroom).
+      inputs:
+        covenant_limit: 3.5
+        headroom_target: 0.2
+        target_ratio: 3.3               # limit - headroom
+        freight_shock_pct: 0.12
+        available_levers:
+          - name: "DPO extension 30→45 days"
+            cash_impact: 1200000        # $1.2M from working capital release
+            type: working_capital
+          - name: "Conference and travel freeze"
+            cash_impact: 800000         # $800K discretionary opex cut
+            type: opex_cut
+            isDiscretionary: true
+        solver_constraint: "sum(lever_cash_impacts) >= ebitda_gap_to_restore_headroom"
+      expected_result:
+        freight_shock_ebitda_impact: -2000000   # ~$2M EBITDA reduction
+        pre_shock_ratio: 3.15
+        post_shock_ratio: 3.45                  # breaches 3.5 covenant if unaddressed
+        levers_activated:
+          - lever: "DPO extension 30→45 days"
+            cash_impact: 1200000
+          - lever: "Conference and travel freeze"
+            cash_impact: 800000
+        post_lever_ratio: 3.29                  # restored to 3.29 (within 3.3 target)
+        covenant_breached: false
+
+    expected_output:
+      executive_summary: >
+        A 12% freight rate increase from the primary logistics vendor would compress EBITDA
+        by approximately $2M, pushing the net debt-to-EBITDA ratio to 3.45 — breaching the
+        3.5 covenant limit when considering the required 0.2x headroom. Two levers must be
+        activated: extending DPO from 30 to 45 days ($1.2M working capital release) and
+        freezing conference and travel spend ($800K). Combined, these restore the ratio to
+        3.29x — within the 3.3x target.
+      key_metrics:
+        post_shock_ratio_unaddressed: "3.45"
+        levers_required: "DPO extension + conference freeze"
+        post_lever_ratio: "3.29"
+        covenant_status: "DEFENDED"
+      citations:
+        - source_table: ebitda_components
+          excerpt: "EBITDA baseline and discretionary opex breakdown"
+        - source_table: balance_sheet
+          excerpt: "Net debt position for ratio calculation"
+        - business_rule_id: "BR-COV-NETDEBT-001"
+          excerpt: "Net debt-to-EBITDA covenant definition and calculation method"
+        - business_rule_id: "BR-DPO-MAX-001"
+          excerpt: "DPO maximum 45 days — legal limit on payable extension"
+
+    data_sources:
+      - "Kyriba"
+      - "NetSuite ERP"
+      - "Coupa"
+
+    confidence_threshold: 0.7
+    validation_checks:
+      - "post_lever_ratio <= 3.3"
+      - "covenant_breached == false after levers"
+      - "DPO lever activated (mandatory — only working capital lever available)"
+      - "at least 2 BusinessRule nodes cited"
+      - "freight_shock source is Vendor node (not hardcoded)"
+
+  - id: TC4
+    name: "The Strategic Capital Reallocation Cross-Over"
+    category: deep_thinking
+    requires_solver: true
+
+    question: >
+      If we reduce CapEx for Project Alpha by 20% to fund Project Beta, what is the net
+      24-month FCF impact, and at what exact month does accelerated ARR from Beta create
+      a positive cumulative NPV crossover?
+
+    required_graph_paths:
+      - path: "Project{name:'Alpha'}->[:HAS_LIABILITY]->ContractClause{type:'SLA_penalty', cost:500000, trigger_condition:'month_6_milestone_miss'}"
+        purpose: "Alpha SLA penalty triggered by CapEx reduction delaying month-6 milestone"
+      - path: "Project{name:'Beta'}->[:GENERATES]->ForecastModel{period_months:24, cash_inflow_array:[...]}"
+        purpose: "Beta 24-month cash inflow forecast — accelerated by reallocation"
+      - path: "Company->[:USES_METRIC]->CostOfCapital{wacc:0.115, as_of_date:'2026-Q1'}"
+        purpose: "WACC for NPV discounting"
+
+    cypher_context_nodes:
+      - label: BusinessRule
+        match_criteria: "CapEx reallocation policy board approval threshold"
+        purpose: "Reallocation above $X requires board approval — check if triggered"
+      - label: KnownAnomaly
+        match_criteria: "Project Alpha month 6 SLA penalty historical trigger"
+        purpose: "Alpha SLA penalty has been triggered before — high probability event"
+
+    sql_tables:
+      - table: project_cashflows
+        columns: [project_id, month, capex, opex, arr_inflow, fcf]
+      - table: contracts
+        columns: [project_id, clause_type, cost, trigger_month, probability]
+
+    execution_tool:
+      type: dcf_loop
+      description: >
+        Compute cumulative NPV for combined (Alpha-reduced + Beta-accelerated) scenario
+        over 24 months. Find the crossover month where cumulative NPV turns positive.
+      inputs:
+        wacc_annual: 0.115               # from CostOfCapital node (cypher_context)
+        wacc_monthly: 0.115 / 12
+        alpha_capex_reduction_pct: 0.20
+        alpha_sla_penalty: 500000        # month 6 (from ContractClause, cypher_context)
+        beta_cash_inflow_array: null     # loaded from ForecastModel node (cypher_context)
+        dcf_formula: "NPV = Σ CF_t / (1 + WACC/12)^t for t in 1..24"
+      expected_result:
+        sla_penalty_triggered: true
+        sla_penalty_month: 6
+        npv_crossover_month: 14
+        cumulative_npv_month_24: 1850000  # net positive after 24 months
+
+    expected_output:
+      executive_summary: >
+        Reallocating 20% of Project Alpha's CapEx to Beta triggers the $500K SLA penalty
+        at month 6 (Alpha's milestone is delayed). The accelerated ARR from Beta outpaces
+        this drag: cumulative NPV crosses positive at month 14. The 24-month net FCF impact
+        is positive $1.85M. WACC applied: 11.5% (current CostOfCapital node).
+      key_metrics:
+        sla_penalty_month: "6"
+        npv_crossover_month: "14"
+        net_fcf_24_month: "+$1.85M"
+      citations:
+        - source_table: project_cashflows
+          excerpt: "Project Alpha and Beta FCF projections"
+        - business_rule_id: "BR-ALPHA-SLA-001"
+          excerpt: "Project Alpha SLA penalty $500K triggered on month-6 milestone miss"
+        - business_rule_id: "BR-CAPEX-APPROVAL-001"
+          excerpt: "CapEx reallocation board approval threshold"
+
+    data_sources:
+      - "Anaplan"
+      - "Icertis Contract Lifecycle Management"
+      - "Corporate Treasury WACC Dashboard"
+
+    confidence_threshold: 0.7
+    validation_checks:
+      - "npv_crossover_month is between 10 and 18"
+      - "sla_penalty_triggered == true"
+      - "CostOfCapital node cited (WACC must not be hardcoded)"
+      - "ForecastModel cash_inflow_array loaded from Neo4j (not SQL)"
+      - "at least 2 BusinessRule nodes cited"
+
+  - id: TC5
+    name: "The Inflation Macro-Shock Mitigation"
+    category: deep_thinking
+    requires_solver: true
+
+    question: >
+      Given a 50 bps hike in core inflation, calculate rolling 4-quarter margin compression
+      on indexed UK R&D labor contracts. How much margin is recovered by freezing the 15 open
+      UK headcounts and rerouting to the Poland hub?
+
+    required_graph_paths:
+      - path: "MacroFeed{type:'core_inflation'}->[:GOVERNS_WAGES]->LaborContract{location:'UK', indexation_clause:'CPI+50bps'}"
+        purpose: "Inflation shock transmission to UK labor costs via indexation clause"
+      - path: "CostCenter{name:'UK_R&D'}->[:HAS_REQS]->JobRequisition{status:'Open', count:15, location:'UK'}"
+        purpose: "15 open UK headcounts to be frozen and rerouted"
+      - path: "CostCenter{name:'Poland_R&D'}->[:HAS_BENCHMARK]->LaborRate{location:'Poland', tier:'senior', annual_rate:85000}"
+        purpose: "Poland labor cost benchmark for geo-arbitrage calculation"
+      - path: "CostCenter{name:'Poland_R&D'}->[:HAS_METRIC]->RampPenalty{days:90, value:-120000}"
+        purpose: "90-day ramp cost for Poland hires — offsets geo-arbitrage savings in Q1"
+
+    cypher_context_nodes:
+      - label: BusinessRule
+        match_criteria: "UK labor contract CPI indexation annual adjustment"
+        purpose: "CPI indexation formula — how the 50bps inflation feeds into contract rates"
+      - label: BusinessRule
+        match_criteria: "Poland R&D ramp penalty new hire productivity curve"
+        purpose: "Ramp penalty applies in first 90 days — must be included in delta calculation"
+      - label: KnownAnomaly
+        match_criteria: "UK R&D Q4 bonus cycle inflation overlap"
+        purpose: "UK bonus cycle coincides with inflation adjustment — amplifies Q4 impact"
+
+    sql_tables:
+      - table: labor_costs
+        columns: [cost_center, location, headcount, annual_salary, contract_type, quarter]
+      - table: job_requisitions
+        columns: [req_id, cost_center, location, status, level, headcount, created_date]
+
+    execution_tool:
+      type: delta_engine
+      description: >
+        Calculate ΔExpense = UK_escalated_cost - (Poland_replacement_cost + ramp_penalty).
+        Roll over 4 quarters.
+      inputs:
+        inflation_shock_bps: 50
+        uk_headcount_frozen: 15
+        uk_annual_rate: null              # loaded from LaborRate node (cypher_context)
+        poland_annual_rate: 85000         # from LaborRate node (cypher_context)
+        ramp_penalty: -120000             # from RampPenalty node (cypher_context), Q1 only
+        formula: "ΔExpense_q = UK_escalated_q - (Poland_cost_q + ramp_penalty_if_q1)"
+      expected_result:
+        quarterly_compression_bps: 65     # +$70K/quarter inflation compression
+        geo_arbitrage_recovery_bps: 48    # 48 bps recovered via Poland reroute
+        net_margin_impact_bps: 17         # 65 - 48 = 17 bps net compression after mitigation
+        ramp_penalty_quarter: "Q1"
+        rolling_4q_compression:
+          Q1: 70000    # inflation impact, ramp penalty offsets some recovery
+          Q2: 70000
+          Q3: 70000
+          Q4: 70000    # Q4 amplified by bonus cycle anomaly — see KnownAnomaly
+
+    expected_output:
+      executive_summary: >
+        A 50 bps core inflation hike on indexed UK R&D labor contracts drives $70K/quarter
+        (65 bps) of margin compression over 4 quarters. Freezing the 15 open UK headcounts
+        and rerouting to Poland recovers 48 bps — a 90-day ramp penalty of $120K applies in
+        Q1 only. Net residual compression: 17 bps. Note: Q4 impact is amplified by the UK
+        R&D bonus cycle (KnownAnomaly BR-UK-BONUS-CYCLE).
+      key_metrics:
+        inflation_compression_per_quarter: "$70K (65 bps)"
+        geo_arbitrage_recovery: "48 bps"
+        net_compression_after_mitigation: "17 bps"
+        ramp_penalty: "$120K (Q1 only)"
+      citations:
+        - source_table: labor_costs
+          excerpt: "UK R&D headcount and annual salary baseline"
+        - business_rule_id: "BR-UK-CPI-INDEX-001"
+          excerpt: "UK labor contracts indexed to CPI — 50bps hike adds directly to contract rate"
+        - business_rule_id: "BR-POLAND-RAMP-001"
+          excerpt: "Poland new-hire ramp penalty: -$120K over 90 days"
+        - business_rule_id: "BR-UK-BONUS-CYCLE"
+          excerpt: "UK R&D Q4 bonus cycle amplifies inflation adjustment impact"
+
+    data_sources:
+      - "Workday HRIS"
+      - "Bloomberg Macro Feed"
+      - "Adaptive Planning"
+
+    confidence_threshold: 0.7
+    validation_checks:
+      - "quarterly_compression_bps is between 55 and 75"
+      - "geo_arbitrage_recovery_bps is between 40 and 55"
+      - "ramp_penalty sourced from RampPenalty Neo4j node (not hardcoded)"
+      - "KnownAnomaly for UK bonus cycle cited"
+      - "at least 3 BusinessRule nodes cited"
