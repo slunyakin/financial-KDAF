@@ -1,6 +1,6 @@
 [build-system]
 requires = ["setuptools>=68", "wheel"]
-build-backend = "setuptools.backends.legacy:build"
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "financial-kdaf"
@@ -9,6 +9,8 @@ requires-python = ">=3.11"
 dependencies = [
     # Orchestration
     "langchain>=0.3",
+    "langchain-anthropic>=0.3",
+    "langchain-core>=0.3",
     "langgraph>=0.2",
     # API
     "fastapi>=0.115",
@@ -29,6 +31,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+snowflake = [
+    "snowflake-connector-python>=3.6",
+]
 dev = [
     "pytest>=8",
     "pytest-asyncio>=0.23",
@@ -39,6 +44,7 @@ dev = [
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "session"
 testpaths = ["tests"]
 
 [tool.ruff]
@@ -51,6 +57,10 @@ ignore = [
     "S101",  # assert statements allowed in tests
     "S102",  # exec allowed in sandbox harness
 ]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["finance_analytics*"]
 
 [tool.mypy]
 python_version = "3.11"

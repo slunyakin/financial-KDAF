@@ -133,6 +133,23 @@ class PostgresConnector(DataLakeConnector):
 
     dialect = "postgresql"
 
+    dialect_examples: dict[str, str] = {
+        "date_trunc_month": "DATE_TRUNC('month', event_date)",
+        "date_trunc_quarter": "DATE_TRUNC('quarter', fiscal_date)",
+        "date_diff_days": "event_date::date - start_date::date",
+        "date_add_days": "order_date + INTERVAL '30 days'",
+        "current_timestamp": "NOW()",
+        "quarter_number": "EXTRACT(quarter FROM fiscal_date)::INTEGER",
+        "year_from_date": "EXTRACT(year FROM fiscal_date)::INTEGER",
+        "string_agg": "STRING_AGG(col, ',' ORDER BY col)",
+        "null_coalesce": "COALESCE(col, 0)",
+        "window_lag": "LAG(revenue, 1) OVER (PARTITION BY segment ORDER BY quarter)",
+        "window_row_number": "ROW_NUMBER() OVER (PARTITION BY segment ORDER BY arr DESC)",
+        "pct_of_total": "1.0 * revenue / NULLIF(SUM(revenue) OVER (), 0) * 100",
+        "safe_divide": "1.0 * numerator / NULLIF(denominator, 0)",
+        "quarter_over_quarter_pct": "(curr - prev) / NULLIF(prev, 0.0) * 100.0",
+    }
+
     def __init__(self, dsn: str, max_pool_size: int = 50) -> None:
         self._dsn = dsn
         self._max_pool_size = max_pool_size

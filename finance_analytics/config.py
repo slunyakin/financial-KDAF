@@ -17,6 +17,23 @@ class Settings(BaseSettings):
     POSTGRES_DSN: str = "postgresql://postgres:postgres@localhost:5432/financial_kdaf"
     POSTGRES_MAX_POOL_SIZE: int = 50
 
+    # Redshift production connector (asyncpg — PostgreSQL wire protocol on port 5439)
+    # DSN must include sslmode=require for production clusters.
+    REDSHIFT_DSN: str = ""
+    REDSHIFT_MAX_POOL_SIZE: int = 200
+    REDSHIFT_CONNECTION_TIMEOUT: float = 5.0
+
+    # Snowflake production connector (sync driver, thread-pool dispatched)
+    # pool_size should be ≤ warehouse MAX_CONCURRENCY_LEVEL (default 8 per cluster).
+    SNOWFLAKE_ACCOUNT: str = ""       # e.g. abc12345.us-east-1
+    SNOWFLAKE_USER: str = ""
+    SNOWFLAKE_PASSWORD: str = ""
+    SNOWFLAKE_DATABASE: str = ""
+    SNOWFLAKE_SCHEMA: str = "PUBLIC"
+    SNOWFLAKE_WAREHOUSE: str = ""
+    SNOWFLAKE_ROLE: str = ""          # optional; uses user's default role if empty
+    SNOWFLAKE_POOL_SIZE: int = 10
+
     # Redis
     REDIS_URL: str = "redis://localhost:6379"
 

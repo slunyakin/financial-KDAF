@@ -6,12 +6,18 @@ from finance_analytics.schemas.agent_outputs import SQLQueryOutput
 class DataLakeConnector(ABC):
     """Abstract base for all data lake / warehouse connectors.
 
-    Each implementation declares its SQL dialect string; execution/sql.py injects
-    it into the Text-to-SQL agent's system prompt at request time. No Postgres-specific
-    SQL may appear in the agent chain — dialect is always connector-owned.
+    Each implementation declares its SQL dialect string and dialect_examples;
+    execution/sql.py and chain_executor.py inject both into the Text-to-SQL
+    agent's system prompt at request time. No Postgres-specific SQL may appear
+    in the agent chain — dialect is always connector-owned.
     """
 
-    dialect: str  # e.g. "postgresql", "snowflake", "bigquery", "duckdb"
+    dialect: str  # e.g. "postgresql", "redshift", "snowflake", "bigquery", "duckdb"
+
+    # Connector-owned examples of dialect-specific patterns (date functions, aggregations,
+    # window functions, type casting). Injected into the Text-to-SQL system prompt alongside
+    # the schema description to ground SQL generation in engine-specific syntax.
+    dialect_examples: dict[str, str] = {}
 
     @abstractmethod
     async def execute(self, query: str, params: dict | None = None) -> SQLQueryOutput:

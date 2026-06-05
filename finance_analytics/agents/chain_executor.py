@@ -49,6 +49,9 @@ SQL dialect: {dialect}
 
 {schema}
 
+Dialect-specific syntax patterns for {dialect}:
+{dialect_examples}
+
 Business rules from the knowledge graph (MUST apply these rules to your query):
 {business_rules}
 
@@ -88,9 +91,16 @@ async def text_to_sql_node(state: AgentState) -> dict:
     data_lake = conn.get_data_lake()
 
     schema = await data_lake.schema_description()
+    examples = data_lake.dialect_examples
+    examples_str = (
+        "\n".join(f"- {k}: `{v}`" for k, v in examples.items())
+        if examples
+        else "Standard SQL patterns apply."
+    )
     system_content = _SQL_SYSTEM.format(
         dialect=data_lake.dialect,
         schema=schema,
+        dialect_examples=examples_str,
         business_rules=_format_kg_items(cypher_context.business_rules),
         known_anomalies=_format_kg_items(cypher_context.known_anomalies),
     )

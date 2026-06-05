@@ -5,19 +5,22 @@ Items deferred from the CEO plan + engineering review. Each item has a priority 
 
 ## P1 — Before first real customer
 
-- [ ] **Customer schema ingestion pipeline** — Onboarding script that connects to customer's data source via the `DataLakeConnector` and populates Neo4j `Table`/`Column` nodes from the customer's actual schema. Replaces manual seeding.
-- [ ] **Production connector implementations** — `connectors/snowflake.py`, `connectors/bigquery.py`, `connectors/redshift.py`, `connectors/duckdb.py` (S3/Parquet). Each implements `DataLakeConnector` ABC. One file per engine.
-- [ ] **SQL dialect handling depth** — A single dialect string injected into the Text-to-SQL prompt is insufficient for Snowflake vs. Postgres differences in window functions, date handling, and string functions. Connectors should also carry a `dialect_examples` dict of common patterns.
-- [ ] **Visibility attribute enforcement on Neo4j nodes** — v1 ships with all KG content world-readable (all authenticated company users). When access control on specific node types is needed: implement Cypher post-processing in `execution/cypher.py` to inject the visibility filter clause before execution. Never rely on the LLM including it.
+- [x] **Customer schema ingestion pipeline** — `finance_analytics/tools/ingest_schema.py`; run with `python -m finance_analytics.tools.ingest_schema [--dry-run]`. Writes Table + Column nodes + HAS_COLUMN edges via batched MERGE. Normalises Snowflake uppercase keys. Connector factory extracted to `connectors/factory.py`.
+- [x] **Production connector: Redshift** — `connectors/redshift.py` (asyncpg, dynamic schema, SSL, dialect examples).
+- [x] **Production connector: Snowflake** — `connectors/snowflake.py` (thread-pool via asyncio.to_thread, DictCursor, dialect examples including DIV0/QUALIFY/VARIANT). Install: `pip install financial-kdaf[snowflake]`.
+- [x] **SQL dialect handling depth** — `dialect_examples` dict added to `DataLakeConnector` ABC and all connector implementations; injected into Text-to-SQL system prompt via `chain_executor.py`.
+- [x] **Visibility attribute enforcement on Neo4j nodes** — `_visibility_clause(node_var)` in `execution/cypher.py` injects `(n.visibility IS NULL OR any(role IN $visibility_roles WHERE role IN n.visibility))` into all three KG fetch queries. `visibility_roles` passed as Neo4j parameter; never embedded via LLM output.
 
-## P2 — Before first public release
+## P2 — Before public release
 
 - [ ] **Streaming responses** — `StreamingResponse` + `astream_events` from LangGraph. Add before first real user scenario. API clients must not hardcode sync assumptions — version the response envelope (`api_version: "1"`) so streaming can be added as `api_version: "2"` without breaking v1 callers.
 - [ ] **Query history endpoint** — Replay past CFO questions. `Question` nodes written by v1 support this without migration. Scoped to `user_id` at read time.
 - [ ] **Knowledge engineer enrichment UI** — Chat interface for gap identification and graph mutation. `EnrichmentTask` nodes drive the conversation flow. Write-back proposals require user confirmation before `POST /api/v1/graph/write`.
 
-## P3 — Future / v2
+## P3 — Backlog / v2
 
+- [ ] **Production connector: BigQuery** — `connectors/bigquery.py`. Use `google-cloud-bigquery` with `asyncio.to_thread()` dispatch. BigQuery has no persistent connection pool — create a `bigquery.Client` per process; wrap in the `DataLakeConnector` ABC.
+- [ ] **Production connector: DuckDB / S3-Parquet** — `connectors/duckdb.py`. Use `duckdb` in-process engine; reads customer Parquet files from S3 via `httpfs` extension. Pool model: single-writer lock (DuckDB is single-writer); reads can parallelize with separate in-memory DBs per request.
 - [ ] **KG-as-queryable-API endpoint** — `GET /api/v1/graph/context?q=...`. Turns the KG into a platform other agents can query. Depends on v1 KG being stable.
 - [ ] **Fast-path for questions without KG context** — A simple aggregation question that has no matching BusinessRule or KnownAnomaly should short-circuit the Text-to-Cypher step (or run it with a timeout cap). Reduces cold-cache latency for simple queries by ~200ms.
 - [ ] **Per-company deployment ops tooling** — Provisioning automation, upgrade coordination, and monitoring across customer deployments. Each company runs its own Neo4j + Postgres + Redis; as customer count grows, manual ops doesn't scale.
