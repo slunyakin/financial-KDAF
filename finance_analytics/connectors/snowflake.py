@@ -29,11 +29,6 @@ from __future__ import annotations
 import asyncio
 import queue
 import time
-from typing import Optional
-
-import snowflake.connector
-from snowflake.connector import DictCursor
-
 from finance_analytics.connectors.base import DataLakeConnector
 from finance_analytics.schemas.agent_outputs import SQLQueryOutput
 
@@ -94,12 +89,13 @@ class SnowflakeConnector(DataLakeConnector):
         self._warehouse = warehouse
         self._role = role
         self._pool_size = pool_size
-        self._pool: Optional[queue.Queue] = None
+        self._pool: queue.Queue | None = None
 
     async def init_pool(self) -> None:
         self._pool = await asyncio.to_thread(self._create_pool)
 
     def _create_pool(self) -> queue.Queue:
+        import snowflake.connector  # optional dep; only imported when engine=snowflake
         q: queue.Queue = queue.Queue(maxsize=self._pool_size)
         connect_kwargs: dict = dict(
             account=self._account,
@@ -116,16 +112,17 @@ class SnowflakeConnector(DataLakeConnector):
             q.put(snowflake.connector.connect(**connect_kwargs))
         return q
 
-    def _acquire(self) -> snowflake.connector.SnowflakeConnection:
+    def _acquire(self):
         if self._pool is None:
             raise RuntimeError("SnowflakeConnector pool not initialized — call init_pool()")
         return self._pool.get(timeout=10)
 
-    def _release(self, conn: snowflake.connector.SnowflakeConnection) -> None:
+    def _release(self, conn) -> None:
         if self._pool is not None:
             self._pool.put(conn)
 
     def _execute_sync(self, query: str) -> SQLQueryOutput:
+        from snowflake.connector import DictCursor
         conn = self._acquire()
         try:
             start_ms = int(time.monotonic() * 1000)
@@ -143,6 +140,7 @@ class SnowflakeConnector(DataLakeConnector):
             self._release(conn)
 
     def _schema_sync(self) -> str:
+        from snowflake.connector import DictCursor
         conn = self._acquire()
         try:
             with conn.cursor(DictCursor) as cur:
