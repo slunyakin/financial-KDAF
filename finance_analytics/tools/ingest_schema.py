@@ -135,7 +135,6 @@ async def _write_batches(
     label: str,
     dry_run: bool,
 ) -> None:
-    total = len(rows)
     batches = list(_chunks(rows, _BATCH_SIZE))
     for i, batch in enumerate(batches, 1):
         print(f"[ingest_schema] writing {label} (batch {i}/{len(batches)})...")

@@ -24,10 +24,10 @@ from finance_analytics.connectors.neo4j import Neo4jConnector
 from finance_analytics.connectors.postgres import PostgresConnector
 from finance_analytics.connectors.redis import RedisConnector
 from tests.integration.conftest import (
-    POSTGRES_DSN,
+    NEO4J_PASSWORD,
     NEO4J_URI,
     NEO4J_USER,
-    NEO4J_PASSWORD,
+    POSTGRES_DSN,
     REDIS_URL,
 )
 
@@ -339,7 +339,7 @@ class TestTC3CovenantDefense:
         result = _solver_result(tc3_state)
         assert result is not None, "TC3: PythonExecutor produced no result"
         levers = result.get("levers_activated", result.get("levers", []))
-        lever_names = [str(l.get("lever", l.get("name", ""))).lower() for l in levers]
+        lever_names = [str(lv.get("lever", lv.get("name", ""))).lower() for lv in levers]
         assert any("dpo" in n or "payable" in n for n in lever_names), (
             f"TC3: DPO lever not found in activated levers: {lever_names}"
         )

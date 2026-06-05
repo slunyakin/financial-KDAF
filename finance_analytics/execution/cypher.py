@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import json
 import re
-from typing import List
 
 from neo4j import AsyncDriver
 
@@ -65,8 +64,8 @@ def assert_read_only(cypher: str) -> None:
 
 
 async def fetch_kg_context(
-    domain_terms: List[str],
-    user_roles: List[str],
+    domain_terms: list[str],
+    user_roles: list[str],
     neo4j_driver: AsyncDriver,
     redis_client: RedisConnector,
 ) -> CypherContextOutput:

@@ -9,15 +9,13 @@ Usage in agents:
 """
 from __future__ import annotations
 
-from typing import Optional
-
 from finance_analytics.connectors.base import DataLakeConnector
 from finance_analytics.connectors.neo4j import Neo4jConnector
 from finance_analytics.connectors.redis import RedisConnector
 
-_neo4j: Optional[Neo4jConnector] = None
-_redis: Optional[RedisConnector] = None
-_data_lake: Optional[DataLakeConnector] = None
+_neo4j: Neo4jConnector | None = None
+_redis: RedisConnector | None = None
+_data_lake: DataLakeConnector | None = None
 
 
 def init_connectors(

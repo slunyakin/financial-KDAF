@@ -9,7 +9,6 @@ import pytest
 
 from finance_analytics.execution.cypher import _visibility_clause, assert_read_only
 
-
 # ── Blocked cases ─────────────────────────────────────────────────────────────
 
 @pytest.mark.parametrize("cypher", [

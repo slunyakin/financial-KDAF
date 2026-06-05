@@ -5,8 +5,6 @@ build_edge_params) and the batch chunking utility. No live database required.
 """
 from __future__ import annotations
 
-import pytest
-
 from finance_analytics.tools.ingest_schema import (
     _chunks,
     _normalise,
