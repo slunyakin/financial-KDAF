@@ -20,10 +20,15 @@ Cache key format:
 """
 from __future__ import annotations
 
+import hashlib
 import json
+import logging
+import time
 from collections.abc import AsyncIterator
 from functools import lru_cache
 from typing import Any
+
+_log = logging.getLogger(__name__)
 
 from langgraph.graph import END, StateGraph
 
@@ -66,15 +71,15 @@ async def write_cache_node(state: AgentState) -> dict:
 
 
 _WRITE_QUESTION_CYPHER = """\
-CREATE (q:Question {
-  user_id:            $user_id,
-  question_text:      $question_text,
-  summary:            $summary,
-  confidence_score:   $confidence_score,
-  low_confidence:     $low_confidence,
-  enrichment_task_id: $enrichment_task_id,
-  created_at:         datetime()
-})
+MERGE (q:Question {id: $question_id})
+ON CREATE SET
+  q.user_id            = $user_id,
+  q.question_text      = $question_text,
+  q.summary            = $summary,
+  q.confidence_score   = $confidence_score,
+  q.low_confidence     = $low_confidence,
+  q.enrichment_task_id = $enrichment_task_id,
+  q.created_at         = datetime()
 """
 
 
@@ -100,10 +105,16 @@ async def write_question_node(state: AgentState) -> dict:
         if isinstance(answer_meta, dict)
         else None
     )
+    # Stable within the cache TTL window — deduplicates client retries
+    question_id = hashlib.sha256(
+        f"{state['user_id']}|{state['question']}|{int(time.time() // _QUERY_CACHE_TTL)}"
+        .encode()
+    ).hexdigest()
     try:
         async with conn.get_neo4j().driver.session() as session:
             await session.run(
                 _WRITE_QUESTION_CYPHER,
+                question_id=question_id,
                 user_id=state["user_id"],
                 question_text=state["question"],
                 summary=reflection.reasoning,
@@ -112,7 +123,7 @@ async def write_question_node(state: AgentState) -> dict:
                 enrichment_task_id=enrichment_task_id,
             )
     except Exception:  # noqa: BLE001
-        pass  # history write failure must not break the caller
+        _log.warning("write_question_node: failed to persist Question node", exc_info=True)
     return {}
 
 

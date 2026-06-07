@@ -102,6 +102,36 @@ async def test_write_question_correct_params():
     assert kwargs["confidence_score"] == pytest.approx(0.88)
     assert kwargs["low_confidence"] is False
     assert kwargs["enrichment_task_id"] is None
+    assert len(kwargs["question_id"]) == 64  # sha256 hex digest — idempotency key
+
+
+@pytest.mark.asyncio
+async def test_write_question_idempotency_key_stable():
+    """Same user+question within the TTL window produces the same question_id."""
+    reflection = ReflectionOutput(
+        addresses_question=True, reasoning="ok", citations=[], confidence_score=0.9
+    )
+    state = {
+        "question": "same question",
+        "user_id": "user-1",
+        "user_roles": [],
+        "cached": False,
+        "reflection_output": reflection,
+        "answer": {"confidence_score": 0.9},
+    }
+
+    ids = []
+    for _ in range(2):
+        session_mock = _make_session_mock()
+        neo4j_mock = MagicMock()
+        neo4j_mock.driver.session.return_value = session_mock
+        with patch("finance_analytics.agents.supervisor.conn") as mock_conn:
+            mock_conn.get_neo4j.return_value = neo4j_mock
+            await write_question_node(state)
+        _, kwargs = session_mock.run.call_args
+        ids.append(kwargs["question_id"])
+
+    assert ids[0] == ids[1], "question_id must be stable within TTL window"
 
 
 @pytest.mark.asyncio

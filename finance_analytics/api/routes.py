@@ -132,7 +132,7 @@ async def history_endpoint(
             confidence_score=r["confidence_score"] or 0.0,
             low_confidence=r["low_confidence"] or False,
             enrichment_task_id=r["enrichment_task_id"],
-            created_at=r["created_at"],
+            created_at=r["created_at"].to_native() if hasattr(r["created_at"], "to_native") else r["created_at"],
         )
         for r in records
     ]
