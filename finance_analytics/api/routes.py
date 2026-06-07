@@ -8,12 +8,11 @@ added as api_version: "2" without breaking v1 callers (CEO plan decision D8).
 """
 from __future__ import annotations
 
-from typing import List, Optional, Tuple
-
 from fastapi import APIRouter, Depends
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from finance_analytics.agents.supervisor import run_query
+from finance_analytics.agents.supervisor import run_query, run_query_stream
 from finance_analytics.api.auth import get_current_user
 from finance_analytics.schemas.query_response import QueryResponse
 
@@ -27,7 +26,7 @@ class QueryRequest(BaseModel):
 @router.post("/query", response_model=QueryResponse)
 async def query_endpoint(
     request: QueryRequest,
-    current_user: Tuple[str, List[str]] = Depends(get_current_user),
+    current_user: tuple[str, list[str]] = Depends(get_current_user),
 ) -> QueryResponse:
     """Submit a natural language question to the analytics agent chain.
 
@@ -41,7 +40,7 @@ async def query_endpoint(
     answer_meta = final_state.get("answer") or {}
 
     confidence_score: float = answer_meta.get("confidence_score", 0.0)
-    enrichment_task_id: Optional[str] = answer_meta.get("enrichment_task_id")
+    enrichment_task_id: str | None = answer_meta.get("enrichment_task_id")
 
     return QueryResponse(
         api_version="1",
@@ -54,3 +53,29 @@ async def query_endpoint(
         low_confidence=confidence_score < 0.7,
         enrichment_task_id=enrichment_task_id,
     )
+
+
+@router.post("/query/stream")
+async def query_stream_endpoint(
+    request: QueryRequest,
+    current_user: tuple[str, list[str]] = Depends(get_current_user),
+) -> StreamingResponse:
+    """Stream agent chain progress as Server-Sent Events (SSE).
+
+    Each SSE line is: data: <json>\\n\\n
+
+    Event shapes (all carry api_version: "2"):
+      {"event": "node_done", "node": "<name>", "summary": "<one-liner>"}
+      {"event": "result",    "summary": "...", "citations": [...], "confidence_score": 0.9, ...}
+      {"event": "error",     "message": "..."}
+
+    Nodes emitted in chain order: check_cache → refiner → text_to_cypher →
+    text_to_sql → [python_executor] → validator → reflection → write_cache
+    """
+    user_id, user_roles = current_user
+
+    async def _generate():
+        async for event in run_query_stream(request.question, user_id, user_roles):
+            yield f"data: {event.model_dump_json()}\n\n"
+
+    return StreamingResponse(_generate(), media_type="text/event-stream")
