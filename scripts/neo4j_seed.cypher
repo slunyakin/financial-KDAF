@@ -2,6 +2,12 @@
 // Applied manually or via scripts/smoke_test.sh against localhost:7687
 // Safe to re-run (MERGE is idempotent; SET overwrites properties).
 
+// ── Schema — indexes and constraints ────────────────────────────────────────
+// Required for query-history performance: GET /api/v1/history filters by user_id
+CREATE INDEX question_user_id IF NOT EXISTS FOR (q:Question) ON (q.user_id);
+// Deduplicates write_question_node on client retries within the cache TTL window
+CREATE CONSTRAINT question_id IF NOT EXISTS FOR (q:Question) REQUIRE q.id IS UNIQUE;
+
 // ── TC1 — APAC Margin Recovery ──────────────────────────────────────────────
 
 MERGE (seg_apac:Segment {id: 'APAC_ENTERPRISE'})
