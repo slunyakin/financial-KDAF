@@ -162,6 +162,34 @@ async def test_write_question_low_confidence_flag():
 
 
 @pytest.mark.asyncio
+async def test_write_question_non_dict_answer_uses_reflection_score():
+    """When answer is not a dict, confidence falls back to reflection.confidence_score."""
+    reflection = ReflectionOutput(
+        addresses_question=True, reasoning="ok", citations=[], confidence_score=0.75
+    )
+    state = {
+        "question": "What is ARR?",
+        "user_id": "user-5",
+        "user_roles": [],
+        "cached": False,
+        "reflection_output": reflection,
+        "answer": "not-a-dict",  # triggers the else branch
+    }
+
+    session_mock = _make_session_mock()
+    neo4j_mock = MagicMock()
+    neo4j_mock.driver.session.return_value = session_mock
+
+    with patch("finance_analytics.agents.supervisor.conn") as mock_conn:
+        mock_conn.get_neo4j.return_value = neo4j_mock
+        await write_question_node(state)
+
+    _, kwargs = session_mock.run.call_args
+    assert kwargs["confidence_score"] == pytest.approx(0.75)
+    assert kwargs["enrichment_task_id"] is None
+
+
+@pytest.mark.asyncio
 async def test_write_question_swallows_neo4j_error():
     reflection = ReflectionOutput(
         addresses_question=True, reasoning="ok", citations=[], confidence_score=0.9

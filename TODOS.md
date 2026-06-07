@@ -14,7 +14,7 @@ Items deferred from the CEO plan + engineering review. Each item has a priority 
 ## P2 — Before public release
 
 - [x] **Streaming responses** — `POST /api/v1/query/stream` returns SSE. `NodeDoneEvent` after each pipeline stage; `ResultEvent` (api_version: "2") with full answer at the end. Uses LangGraph `astream(stream_mode="updates")`. `schemas/stream_events.py`, `agents/supervisor.py::run_query_stream`, `api/routes.py`. v1 callers unaffected.
-- [ ] **Query history endpoint** — Replay past CFO questions. `Question` nodes written by v1 support this without migration. Scoped to `user_id` at read time.
+- [x] **Query history endpoint** — Replay past CFO questions. `Question` nodes written by v1 support this without migration. Scoped to `user_id` at read time.
 - [ ] **Knowledge engineer enrichment UI** — Chat interface for gap identification and graph mutation. `EnrichmentTask` nodes drive the conversation flow. Write-back proposals require user confirmation before `POST /api/v1/graph/write`.
 
 ## P3 — Backlog / v2
