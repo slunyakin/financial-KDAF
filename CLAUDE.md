@@ -117,6 +117,35 @@ Using the five canonical label strings (needs-triage, needs-info, ready-for-agen
 
 Single-context layout — one `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.
 
+## Development workflow
+
+Every feature or bug fix follows this sequence. Enforce it automatically — do not wait to be asked.
+
+### Starting a new feature (mandatory steps, in order)
+
+1. **File a GitHub issue with `/spec`** before writing any code. The issue is the source of truth for scope. If the user describes work without a matching open issue, invoke `/spec` immediately.
+2. **Create a feature branch**: `git checkout -b feature/<issue-number>-<short-slug>` (e.g. `feature/12-query-history`). Never commit feature work directly to `main`.
+3. **Implement** on the branch. Commit atomically — one logical change per commit.
+4. **Run `/review`** on the diff before opening a PR. Fix all findings rated medium or higher.
+5. **Run `/ship`** to open the PR and merge. `/ship` closes the linked GitHub issue automatically.
+
+### Rules
+
+- No code on `main` without a PR (except hotfixes explicitly approved by the user).
+- No PR without a linked GitHub issue number in the branch name or PR body.
+- No merge without `/review` passing.
+- After merge, delete the feature branch.
+
+### Quick reference
+
+| Step | Command |
+|------|---------|
+| File issue | `/spec` |
+| Create branch | `git checkout -b feature/<issue>-<slug>` |
+| Pre-merge review | `/review` |
+| Open PR + merge | `/ship` |
+| QA a running app | `/qa` |
+
 ## Skill routing
 
 When the user's request matches an available skill, invoke it via the Skill tool. When in doubt, invoke the skill.
@@ -134,3 +163,4 @@ Key routing rules:
 - Ship/deploy/PR → invoke /ship or /land-and-deploy
 - Save progress → invoke /context-save
 - Resume context → invoke /context-restore
+- New feature / backlog item → invoke /spec
