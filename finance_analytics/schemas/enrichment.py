@@ -12,6 +12,7 @@ class EnrichmentReportRequest(BaseModel):
 
 
 class EnrichmentReportResponse(BaseModel):
+    api_version: Literal["1"] = "1"
     task_id: str
     status: Literal["open"] = "open"
 
@@ -21,9 +22,9 @@ class EnrichmentTaskItem(BaseModel):
     question_text: str
     confidence_score: float | None = None
     source: str
-    status: str
+    status: Literal["open", "resolved"]
     submitted_by: str | None = None
-    created_at: datetime
+    created_at: datetime | None = None
 
 
 class EnrichmentTasksResponse(BaseModel):

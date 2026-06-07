@@ -11,6 +11,8 @@ CREATE CONSTRAINT question_id IF NOT EXISTS FOR (q:Question) REQUIRE q.id IS UNI
 CREATE INDEX enrichment_task_status IF NOT EXISTS FOR (t:EnrichmentTask) ON (t.status);
 // Deduplicates POST /enrichment/report on client retries within the 15-min idempotency window
 CREATE CONSTRAINT enrichment_task_id IF NOT EXISTS FOR (t:EnrichmentTask) REQUIRE t.id IS UNIQUE;
+// Required for enrichment tasks list: ORDER BY created_at DESC without index causes full scan
+CREATE INDEX enrichment_task_created_at IF NOT EXISTS FOR (t:EnrichmentTask) ON (t.created_at);
 
 // ── TC1 — APAC Margin Recovery ──────────────────────────────────────────────
 

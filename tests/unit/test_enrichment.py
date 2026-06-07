@@ -16,6 +16,7 @@ import pytest
 from fastapi import HTTPException
 from pydantic import ValidationError
 
+from finance_analytics.api.routes import enrichment_report_endpoint
 from finance_analytics.schemas.enrichment import (
     EnrichmentReportRequest,
     EnrichmentReportResponse,
@@ -399,6 +400,189 @@ def test_enrichment_report_response_status_is_always_open():
     assert resp.status == "open"
 
 
-# ── lazy import used by endpoint tests above ─────────────────────────────────
+# ── _coerce_neo4j_dt: passthrough branches ───────────────────────────────────
 
-from finance_analytics.api.routes import enrichment_report_endpoint  # noqa: E402
+def test_coerce_neo4j_dt_passthrough_for_plain_datetime():
+    from finance_analytics.api.routes import _coerce_neo4j_dt
+    dt = datetime(2026, 6, 6, tzinfo=timezone.utc)
+    assert _coerce_neo4j_dt(dt) is dt
+
+
+def test_coerce_neo4j_dt_passthrough_for_none():
+    from finance_analytics.api.routes import _coerce_neo4j_dt
+    assert _coerce_neo4j_dt(None) is None
+
+
+# ── enrichment_report_endpoint: TTL window flip and driver failure ────────────
+
+@pytest.mark.asyncio
+async def test_enrichment_report_different_windows_produce_different_ids():
+    """task_id must change when the 15-min TTL window rolls over."""
+    request = EnrichmentReportRequest(description="Same description")
+    ids = []
+    for window_offset in [1_000_000.0, 1_000_900.0]:  # straddle a 900-s boundary
+        session_mock = _make_session_mock(single_result={"element_id": "4:x:0"})
+        neo4j_mock = MagicMock()
+        neo4j_mock.driver.session.return_value = session_mock
+        with patch("finance_analytics.api.routes.conn") as mock_conn, \
+             patch("finance_analytics.api.routes.time") as mock_time:
+            mock_conn.get_neo4j.return_value = neo4j_mock
+            mock_time.time.return_value = float(window_offset)
+            resp = await enrichment_report_endpoint(
+                request=request, current_user=("user-1", [])
+            )
+        ids.append(resp.task_id)
+    assert ids[0] != ids[1]
+
+
+@pytest.mark.asyncio
+async def test_enrichment_report_propagates_driver_exception():
+    """session.run() raising propagates out (FastAPI converts unhandled exc to HTTP 500)."""
+    request = EnrichmentReportRequest(description="Some gap")
+    session = AsyncMock()
+    session.__aenter__ = AsyncMock(return_value=session)
+    session.__aexit__ = AsyncMock(return_value=False)
+    session.run = AsyncMock(side_effect=RuntimeError("Neo4j unavailable"))
+    neo4j_mock = MagicMock()
+    neo4j_mock.driver.session.return_value = session
+
+    with patch("finance_analytics.api.routes.conn") as mock_conn:
+        mock_conn.get_neo4j.return_value = neo4j_mock
+        with pytest.raises(RuntimeError, match="Neo4j unavailable"):
+            await enrichment_report_endpoint(
+                request=request, current_user=("user-1", [])
+            )
+
+
+# ── enrichment_tasks_endpoint: None coercions, count_record=None, driver fail ─
+
+@pytest.mark.asyncio
+async def test_enrichment_tasks_null_status_coerced_to_open():
+    from finance_analytics.api.routes import enrichment_tasks_endpoint
+    dt = datetime(2026, 6, 6, tzinfo=timezone.utc)
+    record = _task_record(dt)
+    record["status"] = None
+    session_mock = _make_tasks_session_mock([record], total=1)
+    neo4j_mock = MagicMock()
+    neo4j_mock.driver.session.return_value = session_mock
+
+    with patch("finance_analytics.api.routes.conn") as mock_conn:
+        mock_conn.get_neo4j.return_value = neo4j_mock
+        response = await enrichment_tasks_endpoint(
+            current_user=("user-1", ["knowledge_engineer"]),
+            status="open",
+            limit=50,
+        )
+
+    assert response.items[0].status == "open"
+
+
+@pytest.mark.asyncio
+async def test_enrichment_tasks_null_question_text_coerced_to_empty():
+    from finance_analytics.api.routes import enrichment_tasks_endpoint
+    dt = datetime(2026, 6, 6, tzinfo=timezone.utc)
+    record = _task_record(dt)
+    record["question_text"] = None
+    session_mock = _make_tasks_session_mock([record], total=1)
+    neo4j_mock = MagicMock()
+    neo4j_mock.driver.session.return_value = session_mock
+
+    with patch("finance_analytics.api.routes.conn") as mock_conn:
+        mock_conn.get_neo4j.return_value = neo4j_mock
+        response = await enrichment_tasks_endpoint(
+            current_user=("user-1", ["knowledge_engineer"]),
+            status="open",
+            limit=50,
+        )
+
+    assert response.items[0].question_text == ""
+
+
+@pytest.mark.asyncio
+async def test_enrichment_tasks_null_count_record_gives_total_zero():
+    from finance_analytics.api.routes import enrichment_tasks_endpoint
+    dt = datetime(2026, 6, 6, tzinfo=timezone.utc)
+    session = AsyncMock()
+    session.__aenter__ = AsyncMock(return_value=session)
+    session.__aexit__ = AsyncMock(return_value=False)
+
+    list_result = AsyncMock()
+    list_result.data = AsyncMock(return_value=[_task_record(dt)])
+    count_result = AsyncMock()
+    count_result.single = AsyncMock(return_value=None)
+    session.run = AsyncMock(side_effect=[list_result, count_result])
+    neo4j_mock = MagicMock()
+    neo4j_mock.driver.session.return_value = session
+
+    with patch("finance_analytics.api.routes.conn") as mock_conn:
+        mock_conn.get_neo4j.return_value = neo4j_mock
+        response = await enrichment_tasks_endpoint(
+            current_user=("user-1", ["knowledge_engineer"]),
+            status="open",
+            limit=50,
+        )
+
+    assert response.total == 0
+
+
+@pytest.mark.asyncio
+async def test_enrichment_tasks_confidence_score_non_none():
+    from finance_analytics.api.routes import enrichment_tasks_endpoint
+    dt = datetime(2026, 6, 6, tzinfo=timezone.utc)
+    record = _task_record(dt)
+    record["confidence_score"] = 0.45
+    session_mock = _make_tasks_session_mock([record], total=1)
+    neo4j_mock = MagicMock()
+    neo4j_mock.driver.session.return_value = session_mock
+
+    with patch("finance_analytics.api.routes.conn") as mock_conn:
+        mock_conn.get_neo4j.return_value = neo4j_mock
+        response = await enrichment_tasks_endpoint(
+            current_user=("user-1", ["knowledge_engineer"]),
+            status="open",
+            limit=50,
+        )
+
+    assert response.items[0].confidence_score == pytest.approx(0.45)
+
+
+@pytest.mark.asyncio
+async def test_enrichment_tasks_propagates_driver_exception():
+    from finance_analytics.api.routes import enrichment_tasks_endpoint
+    session = AsyncMock()
+    session.__aenter__ = AsyncMock(return_value=session)
+    session.__aexit__ = AsyncMock(return_value=False)
+    session.run = AsyncMock(side_effect=RuntimeError("Neo4j unavailable"))
+    neo4j_mock = MagicMock()
+    neo4j_mock.driver.session.return_value = session
+
+    with patch("finance_analytics.api.routes.conn") as mock_conn:
+        mock_conn.get_neo4j.return_value = neo4j_mock
+        with pytest.raises(RuntimeError, match="Neo4j unavailable"):
+            await enrichment_tasks_endpoint(
+                current_user=("user-1", ["knowledge_engineer"]),
+                status="open",
+                limit=50,
+            )
+
+
+# ── require_role: end-to-end wiring via FastAPI Depends ─────────────────────
+
+def test_enrichment_tasks_endpoint_depends_on_require_role():
+    """Verify the endpoint wires Depends(require_role('knowledge_engineer')), not bare get_current_user."""
+    import inspect
+    from fastapi import params
+    from finance_analytics.api.routes import enrichment_tasks_endpoint
+
+    sig = inspect.signature(enrichment_tasks_endpoint)
+    current_user_param = sig.parameters.get("current_user")
+    assert current_user_param is not None
+    default = current_user_param.default
+    assert isinstance(default, params.Depends)
+    # The dependency is the _check closure from require_role("knowledge_engineer").
+    # Calling it with a non-KE role must raise HTTP 403 with the correct role name.
+    with pytest.raises(HTTPException) as exc_info:
+        default.dependency(current_user=("user-1", ["analyst"]))
+    assert exc_info.value.status_code == 403
+    assert "knowledge_engineer" in exc_info.value.detail
+

@@ -19,6 +19,8 @@ Items deferred from the CEO plan + engineering review. Each item has a priority 
 
 ## P3 — Backlog / v2
 
+- [ ] **EnrichmentTask re-open after resolution** — `POST /api/v1/enrichment/report` uses `MERGE … ON CREATE SET`; if a knowledge engineer resolves a task and the same user re-submits the identical description within the 15-min idempotency window, the MERGE no-ops and the node stays `resolved` while the API response still claims `status: open`. Fix: add `ON MATCH SET t.status = 'open' WHERE t.status = 'resolved'` to the MERGE Cypher and a regression test for this path. Low-frequency edge (15-min window); deferred to keep issue #2 focused.
+
 - [ ] **Production connector: BigQuery** — `connectors/bigquery.py`. Use `google-cloud-bigquery` with `asyncio.to_thread()` dispatch. BigQuery has no persistent connection pool — create a `bigquery.Client` per process; wrap in the `DataLakeConnector` ABC.
 - [ ] **Production connector: DuckDB / S3-Parquet** — `connectors/duckdb.py`. Use `duckdb` in-process engine; reads customer Parquet files from S3 via `httpfs` extension. Pool model: single-writer lock (DuckDB is single-writer); reads can parallelize with separate in-memory DBs per request.
 - [ ] **KG-as-queryable-API endpoint** — `GET /api/v1/graph/context?q=...`. Turns the KG into a platform other agents can query. Depends on v1 KG being stable.
