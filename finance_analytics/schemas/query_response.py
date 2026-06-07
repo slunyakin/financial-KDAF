@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -20,3 +21,18 @@ class QueryResponse(BaseModel):
         default=None,
         description="Neo4j EnrichmentTask node ID written on low-confidence answers",
     )
+
+
+class QuestionHistoryItem(BaseModel):
+    question_text: str
+    summary: str
+    confidence_score: float = Field(ge=0.0, le=1.0)
+    low_confidence: bool
+    enrichment_task_id: str | None = None
+    created_at: datetime
+
+
+class QueryHistoryResponse(BaseModel):
+    api_version: Literal["1"] = "1"
+    items: list[QuestionHistoryItem]
+    total: int

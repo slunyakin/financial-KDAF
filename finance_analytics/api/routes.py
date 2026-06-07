@@ -1,20 +1,27 @@
 """FastAPI route definitions.
 
 v1 endpoints:
-  POST /api/v1/query  — submit NL question; returns QueryResponse
+  POST /api/v1/query         — submit NL question; returns QueryResponse
+  POST /api/v1/query/stream  — same, streamed as SSE (api_version: "2")
+  GET  /api/v1/history       — list the authenticated user's past questions
 
 Response envelope is versioned (api_version: "1") so streaming can be
 added as api_version: "2" without breaking v1 callers (CEO plan decision D8).
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+import finance_analytics.connectors as conn
 from finance_analytics.agents.supervisor import run_query, run_query_stream
 from finance_analytics.api.auth import get_current_user
-from finance_analytics.schemas.query_response import QueryResponse
+from finance_analytics.schemas.query_response import (
+    QueryHistoryResponse,
+    QueryResponse,
+    QuestionHistoryItem,
+)
 
 router = APIRouter(prefix="/api/v1")
 
@@ -79,3 +86,54 @@ async def query_stream_endpoint(
             yield f"data: {event.model_dump_json()}\n\n"
 
     return StreamingResponse(_generate(), media_type="text/event-stream")
+
+
+_HISTORY_CYPHER = """\
+MATCH (q:Question {user_id: $user_id})
+RETURN q.question_text      AS question_text,
+       q.summary             AS summary,
+       q.confidence_score    AS confidence_score,
+       q.low_confidence      AS low_confidence,
+       q.enrichment_task_id  AS enrichment_task_id,
+       q.created_at          AS created_at
+ORDER BY q.created_at DESC
+LIMIT $limit
+"""
+
+_HISTORY_COUNT_CYPHER = "MATCH (q:Question {user_id: $user_id}) RETURN count(q) AS total"
+
+
+@router.get("/history", response_model=QueryHistoryResponse)
+async def history_endpoint(
+    current_user: tuple[str, list[str]] = Depends(get_current_user),
+    limit: int = Query(default=20, ge=1, le=100),
+) -> QueryHistoryResponse:
+    """Return the authenticated user's past questions, newest first.
+
+    Auth: Bearer JWT.
+    Query params:
+      limit — number of items to return (1–100, default 20)
+    """
+    user_id, _ = current_user
+    neo4j = conn.get_neo4j()
+
+    async with neo4j.driver.session() as session:
+        result = await session.run(_HISTORY_CYPHER, user_id=user_id, limit=limit)
+        records = await result.data()
+
+        count_result = await session.run(_HISTORY_COUNT_CYPHER, user_id=user_id)
+        count_record = await count_result.single()
+        total: int = count_record["total"] if count_record else 0
+
+    items = [
+        QuestionHistoryItem(
+            question_text=r["question_text"],
+            summary=r["summary"] or "",
+            confidence_score=r["confidence_score"] or 0.0,
+            low_confidence=r["low_confidence"] or False,
+            enrichment_task_id=r["enrichment_task_id"],
+            created_at=r["created_at"],
+        )
+        for r in records
+    ]
+    return QueryHistoryResponse(items=items, total=total)

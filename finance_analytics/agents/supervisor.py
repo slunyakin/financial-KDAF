@@ -65,6 +65,57 @@ async def write_cache_node(state: AgentState) -> dict:
     return {}
 
 
+_WRITE_QUESTION_CYPHER = """\
+CREATE (q:Question {
+  user_id:            $user_id,
+  question_text:      $question_text,
+  summary:            $summary,
+  confidence_score:   $confidence_score,
+  low_confidence:     $low_confidence,
+  enrichment_task_id: $enrichment_task_id,
+  created_at:         datetime()
+})
+"""
+
+
+async def write_question_node(state: AgentState) -> dict:
+    """Persist the completed query as a Question node in Neo4j.
+
+    Skipped for cache hits (the node was written on the original request).
+    Write failure is swallowed — it must not surface as an error to the caller.
+    """
+    if state.get("cached"):
+        return {}
+    reflection = state.get("reflection_output")
+    answer_meta = state.get("answer") or {}
+    if not reflection:
+        return {}
+    confidence_score: float = (
+        answer_meta.get("confidence_score", 0.0)
+        if isinstance(answer_meta, dict)
+        else reflection.confidence_score
+    )
+    enrichment_task_id: str | None = (
+        answer_meta.get("enrichment_task_id")
+        if isinstance(answer_meta, dict)
+        else None
+    )
+    try:
+        async with conn.get_neo4j().driver.session() as session:
+            await session.run(
+                _WRITE_QUESTION_CYPHER,
+                user_id=state["user_id"],
+                question_text=state["question"],
+                summary=reflection.reasoning,
+                confidence_score=confidence_score,
+                low_confidence=confidence_score < 0.7,
+                enrichment_task_id=enrichment_task_id,
+            )
+    except Exception:  # noqa: BLE001
+        pass  # history write failure must not break the caller
+    return {}
+
+
 # ── Routing functions ──────────────────────────────────────────────────────────
 
 def _route_after_cache(state: AgentState) -> str:
@@ -105,6 +156,7 @@ def _build_graph() -> Any:
     workflow.add_node("validator", validator_node)
     workflow.add_node("reflection", reflection_node)
     workflow.add_node("write_cache", write_cache_node)
+    workflow.add_node("write_question", write_question_node)
 
     workflow.set_entry_point("check_cache")
 
@@ -120,7 +172,8 @@ def _build_graph() -> Any:
     workflow.add_conditional_edges("validator", _route_after_validator)
 
     workflow.add_edge("reflection", "write_cache")
-    workflow.add_edge("write_cache", END)
+    workflow.add_edge("write_cache", "write_question")
+    workflow.add_edge("write_question", END)
 
     return workflow.compile()
 
@@ -152,7 +205,7 @@ async def run_query(
 
 _STREAM_NODES = frozenset({
     "check_cache", "refiner", "text_to_cypher", "text_to_sql",
-    "python_executor", "validator", "reflection", "write_cache",
+    "python_executor", "validator", "reflection", "write_cache", "write_question",
 })
 
 
@@ -205,6 +258,9 @@ def _node_event_summary(node_name: str, update: dict) -> str:
 
     if node_name == "write_cache":
         return "answer cached"
+
+    if node_name == "write_question":
+        return "question saved to history"
 
     return node_name
 
