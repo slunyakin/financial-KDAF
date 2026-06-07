@@ -1,10 +1,10 @@
 """Unit tests for the enrichment gap reporting endpoints.
 
 No live Neo4j required. Tests cover:
-  - EnrichmentReportRequest validation
-  - enrichment_report_endpoint: node write params (description, user_id, affected_question)
+  - EnrichmentReportRequest validation (including length limits)
+  - enrichment_report_endpoint: node write params, None-record guard
   - require_role: 403 for missing role, passes for matching role
-  - enrichment_tasks_endpoint: status filter, limit, neo4j.time.DateTime coercion
+  - enrichment_tasks_endpoint: status filter (open/resolved/all), limit, datetime coercion
   - EnrichmentTaskItem / EnrichmentTasksResponse model contracts
 """
 from __future__ import annotations
@@ -31,6 +31,32 @@ def test_report_request_requires_description():
         EnrichmentReportRequest(description="")
 
 
+def test_report_request_rejects_description_over_max_length():
+    with pytest.raises(ValidationError):
+        EnrichmentReportRequest(description="x" * 2001)
+
+
+def test_report_request_accepts_description_at_max_length():
+    req = EnrichmentReportRequest(description="x" * 2000)
+    assert len(req.description) == 2000
+
+
+def test_report_request_rejects_affected_question_over_max_length():
+    with pytest.raises(ValidationError):
+        EnrichmentReportRequest(
+            description="valid",
+            affected_question="q" * 501,
+        )
+
+
+def test_report_request_whitespace_only_description_passes_pydantic():
+    # Pydantic min_length=1 counts raw length, not stripped length.
+    # "   " has length 3, so it passes. This is deliberate — knowledge engineers
+    # may occasionally submit edge-case descriptions; we store them verbatim.
+    req = EnrichmentReportRequest(description="   ")
+    assert req.description == "   "
+
+
 def test_report_request_optional_affected_question():
     req = EnrichmentReportRequest(description="Missing gross retention definition")
     assert req.affected_question is None
@@ -46,26 +72,28 @@ def test_report_request_with_affected_question():
 
 # ── enrichment_report_endpoint: node write params ────────────────────────────
 
-def _make_session_mock(single_result=None, run_result=None):
+_SENTINEL = object()
+
+
+def _make_session_mock(single_result=_SENTINEL):
     session = AsyncMock()
     session.__aenter__ = AsyncMock(return_value=session)
     session.__aexit__ = AsyncMock(return_value=False)
     result_mock = AsyncMock()
-    result_mock.single = AsyncMock(return_value=single_result or {"task_id": "4:abc:0"})
+    result_mock.single = AsyncMock(
+        return_value={"task_id": "4:abc:0"} if single_result is _SENTINEL else single_result
+    )
     session.run = AsyncMock(return_value=result_mock)
     return session
 
 
 @pytest.mark.asyncio
 async def test_enrichment_report_writes_correct_params():
-    from finance_analytics.api.routes import enrichment_report_endpoint
-    from finance_analytics.schemas.enrichment import EnrichmentReportRequest
-
     request = EnrichmentReportRequest(
         description="Gross retention concept missing",
         affected_question="What is gross retention?",
     )
-    session_mock = _make_session_mock(single_result={"task_id": "4:abc:0"})
+    session_mock = _make_session_mock(single_result={"element_id": "4:abc:0"})
     neo4j_mock = MagicMock()
     neo4j_mock.driver.session.return_value = session_mock
 
@@ -75,7 +103,7 @@ async def test_enrichment_report_writes_correct_params():
             request=request, current_user=("user-42", ["analyst"])
         )
 
-    assert response.task_id == "4:abc:0"
+    assert len(response.task_id) == 64  # sha256 hex digest
     assert response.status == "open"
 
     session_mock.run.assert_called_once()
@@ -83,15 +111,13 @@ async def test_enrichment_report_writes_correct_params():
     assert kwargs["description"] == "Gross retention concept missing"
     assert kwargs["user_id"] == "user-42"
     assert kwargs["affected_question"] == "What is gross retention?"
+    assert len(kwargs["task_id"]) == 64  # deterministic idempotency key
 
 
 @pytest.mark.asyncio
 async def test_enrichment_report_null_affected_question():
-    from finance_analytics.api.routes import enrichment_report_endpoint
-    from finance_analytics.schemas.enrichment import EnrichmentReportRequest
-
     request = EnrichmentReportRequest(description="Some gap")
-    session_mock = _make_session_mock(single_result={"task_id": "4:xyz:0"})
+    session_mock = _make_session_mock(single_result={"element_id": "4:xyz:0"})
     neo4j_mock = MagicMock()
     neo4j_mock.driver.session.return_value = session_mock
 
@@ -103,7 +129,44 @@ async def test_enrichment_report_null_affected_question():
 
     _, kwargs = session_mock.run.call_args
     assert kwargs["affected_question"] is None
-    assert response.task_id == "4:xyz:0"
+    assert len(response.task_id) == 64  # sha256 deterministic ID
+
+
+@pytest.mark.asyncio
+async def test_enrichment_report_idempotency_key_stable():
+    """Same user+description within the 15-min TTL window produces the same task_id."""
+    request = EnrichmentReportRequest(description="Same gap description")
+    ids = []
+    for _ in range(2):
+        session_mock = _make_session_mock(single_result={"element_id": "4:x:0"})
+        neo4j_mock = MagicMock()
+        neo4j_mock.driver.session.return_value = session_mock
+        with patch("finance_analytics.api.routes.conn") as mock_conn:
+            mock_conn.get_neo4j.return_value = neo4j_mock
+            resp = await enrichment_report_endpoint(
+                request=request, current_user=("user-1", [])
+            )
+        ids.append(resp.task_id)
+
+    assert ids[0] == ids[1], "task_id must be stable within the TTL window"
+
+
+@pytest.mark.asyncio
+async def test_enrichment_report_raises_500_when_record_is_none():
+    """CREATE returning no record (driver failure) must raise HTTP 500, not TypeError."""
+    request = EnrichmentReportRequest(description="Some gap")
+    session_mock = _make_session_mock(single_result=None)
+    neo4j_mock = MagicMock()
+    neo4j_mock.driver.session.return_value = session_mock
+
+    with patch("finance_analytics.api.routes.conn") as mock_conn:
+        mock_conn.get_neo4j.return_value = neo4j_mock
+        with pytest.raises(HTTPException) as exc_info:
+            await enrichment_report_endpoint(
+                request=request, current_user=("user-1", [])
+            )
+
+    assert exc_info.value.status_code == 500
 
 
 # ── require_role ─────────────────────────────────────────────────────────────
@@ -111,25 +174,12 @@ async def test_enrichment_report_null_affected_question():
 def test_require_role_raises_403_for_missing_role():
     from finance_analytics.api.auth import require_role
 
-    dep = require_role("knowledge_engineer")
-    # dep is a closure; call it directly with a user lacking the role
-    checker = dep.__wrapped__ if hasattr(dep, "__wrapped__") else dep
-    # Simulate calling the inner _check function
-    import inspect
-    inner = None
-    for name, obj in inspect.getmembers(dep):
-        pass
-    # Call the dependency function directly (bypassing FastAPI Depends machinery)
-    # require_role returns a function; call it with (user_id, roles) tuple
+    fn = require_role("knowledge_engineer")
     with pytest.raises(HTTPException) as exc_info:
-        # Invoke the inner _check by supplying current_user directly
-        from finance_analytics.api.auth import require_role as rr
-        fn = rr("knowledge_engineer")
-        fn.__code__  # confirm it's a function
-        # Build a local call to _check manually
         fn(current_user=("user-1", ["analyst"]))
 
     assert exc_info.value.status_code == 403
+    assert "knowledge_engineer" in exc_info.value.detail
 
 
 def test_require_role_passes_for_matching_role():
@@ -182,23 +232,24 @@ def _make_fake_neo4j_dt(py_dt: datetime):
     return mock
 
 
+def _task_record(dt, *, source="manual", status_val="open"):
+    return {
+        "task_id": "4:abc:0",
+        "question_text": "missing gross retention",
+        "confidence_score": None,
+        "source": source,
+        "status": status_val,
+        "submitted_by": "user-42",
+        "created_at": _make_fake_neo4j_dt(dt),
+    }
+
+
 @pytest.mark.asyncio
 async def test_enrichment_tasks_returns_items():
     from finance_analytics.api.routes import enrichment_tasks_endpoint
 
     dt = datetime(2026, 6, 6, 12, 0, 0, tzinfo=timezone.utc)
-    records = [
-        {
-            "task_id": "4:abc:0",
-            "question_text": "missing gross retention",
-            "confidence_score": None,
-            "source": "manual",
-            "status": "open",
-            "submitted_by": "user-42",
-            "created_at": _make_fake_neo4j_dt(dt),
-        }
-    ]
-    session_mock = _make_tasks_session_mock(records, total=1)
+    session_mock = _make_tasks_session_mock([_task_record(dt)], total=1)
     neo4j_mock = MagicMock()
     neo4j_mock.driver.session.return_value = session_mock
 
@@ -227,9 +278,7 @@ async def test_enrichment_tasks_passes_status_filter():
 
     dt = datetime(2026, 6, 6, tzinfo=timezone.utc)
     session_mock = _make_tasks_session_mock(
-        [{"task_id": "4:r:0", "question_text": "x", "confidence_score": None,
-          "source": "reflection", "status": "resolved", "submitted_by": None,
-          "created_at": _make_fake_neo4j_dt(dt)}],
+        [_task_record(dt, source="reflection", status_val="resolved")],
         total=1,
     )
     neo4j_mock = MagicMock()
@@ -245,7 +294,57 @@ async def test_enrichment_tasks_passes_status_filter():
 
     _, kwargs = session_mock.run.call_args_list[0]
     assert kwargs["status"] == "resolved"
+    assert kwargs["limit"] == 50
     assert response.total == 1
+
+
+@pytest.mark.asyncio
+async def test_enrichment_tasks_status_all():
+    from finance_analytics.api.routes import enrichment_tasks_endpoint
+
+    dt = datetime(2026, 6, 6, tzinfo=timezone.utc)
+    session_mock = _make_tasks_session_mock(
+        [_task_record(dt), _task_record(dt, status_val="resolved")],
+        total=2,
+    )
+    neo4j_mock = MagicMock()
+    neo4j_mock.driver.session.return_value = session_mock
+
+    with patch("finance_analytics.api.routes.conn") as mock_conn:
+        mock_conn.get_neo4j.return_value = neo4j_mock
+        response = await enrichment_tasks_endpoint(
+            current_user=("user-1", ["knowledge_engineer"]),
+            status="all",
+            limit=50,
+        )
+
+    _, kwargs = session_mock.run.call_args_list[0]
+    assert kwargs["status"] == "all"
+    assert response.total == 2
+    assert len(response.items) == 2
+
+
+@pytest.mark.asyncio
+async def test_enrichment_tasks_source_fallback_for_reflection_nodes():
+    """Reflection-written EnrichmentTask nodes have no source property → should use 'unknown'."""
+    from finance_analytics.api.routes import enrichment_tasks_endpoint
+
+    dt = datetime(2026, 6, 6, tzinfo=timezone.utc)
+    record = _task_record(dt)
+    record["source"] = None  # reflection.py does not set source
+    session_mock = _make_tasks_session_mock([record], total=1)
+    neo4j_mock = MagicMock()
+    neo4j_mock.driver.session.return_value = session_mock
+
+    with patch("finance_analytics.api.routes.conn") as mock_conn:
+        mock_conn.get_neo4j.return_value = neo4j_mock
+        response = await enrichment_tasks_endpoint(
+            current_user=("user-1", ["knowledge_engineer"]),
+            status="open",
+            limit=50,
+        )
+
+    assert response.items[0].source == "unknown"
 
 
 @pytest.mark.asyncio
@@ -290,6 +389,16 @@ def test_enrichment_tasks_response_api_version():
 
 
 def test_enrichment_report_response_fields():
-    resp = EnrichmentReportResponse(task_id="4:abc:0", status="open")
+    resp = EnrichmentReportResponse(task_id="4:abc:0")
     assert resp.task_id == "4:abc:0"
     assert resp.status == "open"
+
+
+def test_enrichment_report_response_status_is_always_open():
+    resp = EnrichmentReportResponse(task_id="4:x:0")
+    assert resp.status == "open"
+
+
+# ── lazy import used by endpoint tests above ─────────────────────────────────
+
+from finance_analytics.api.routes import enrichment_report_endpoint  # noqa: E402

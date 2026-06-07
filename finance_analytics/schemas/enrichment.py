@@ -7,13 +7,13 @@ from pydantic import BaseModel, Field
 
 
 class EnrichmentReportRequest(BaseModel):
-    description: str = Field(min_length=1)
-    affected_question: str | None = None
+    description: str = Field(min_length=1, max_length=2000)
+    affected_question: str | None = Field(default=None, max_length=500)
 
 
 class EnrichmentReportResponse(BaseModel):
     task_id: str
-    status: str
+    status: Literal["open"] = "open"
 
 
 class EnrichmentTaskItem(BaseModel):

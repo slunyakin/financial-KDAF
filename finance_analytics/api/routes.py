@@ -12,7 +12,10 @@ added as api_version: "2" without breaking v1 callers (CEO plan decision D8).
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Query
+import hashlib
+import time
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
@@ -32,6 +35,11 @@ from finance_analytics.schemas.query_response import (
 )
 
 router = APIRouter(prefix="/api/v1")
+
+
+def _coerce_neo4j_dt(value):
+    """Convert neo4j.time.DateTime to Python datetime; pass through anything else."""
+    return value.to_native() if hasattr(value, "to_native") else value
 
 
 class QueryRequest(BaseModel):
@@ -140,25 +148,26 @@ async def history_endpoint(
             confidence_score=r["confidence_score"] or 0.0,
             low_confidence=r["low_confidence"] or False,
             enrichment_task_id=r["enrichment_task_id"],
-            created_at=r["created_at"].to_native() if hasattr(r["created_at"], "to_native") else r["created_at"],
+            created_at=_coerce_neo4j_dt(r["created_at"]),
         )
         for r in records
     ]
     return QueryHistoryResponse(items=items, total=total)
 
 
+_ENRICHMENT_REPORT_TTL = 900  # 15-minute idempotency window
+
 _ENRICHMENT_REPORT_CYPHER = """\
-CREATE (t:EnrichmentTask {
-  question_text:     $description,
-  confidence_score:  null,
-  missing_context:   [],
-  status:            'open',
-  source:            'manual',
-  submitted_by:      $user_id,
-  affected_question: $affected_question,
-  created_at:        datetime()
-})
-RETURN elementId(t) AS task_id
+MERGE (t:EnrichmentTask {id: $task_id})
+ON CREATE SET
+  t.question_text     = $description,
+  t.missing_context   = [],
+  t.status            = 'open',
+  t.source            = 'manual',
+  t.submitted_by      = $user_id,
+  t.affected_question = $affected_question,
+  t.created_at        = datetime()
+RETURN elementId(t) AS element_id
 """
 
 _ENRICHMENT_TASKS_CYPHER = """\
@@ -192,19 +201,28 @@ async def enrichment_report_endpoint(
     Auth: any authenticated user.
     """
     user_id, _ = current_user
+    task_id = hashlib.sha256(
+        f"{user_id}|{request.description}|{int(time.time() // _ENRICHMENT_REPORT_TTL)}"
+        .encode()
+    ).hexdigest()
     neo4j = conn.get_neo4j()
 
     async with neo4j.driver.session() as session:
         result = await session.run(
             _ENRICHMENT_REPORT_CYPHER,
+            task_id=task_id,
             description=request.description,
             user_id=user_id,
             affected_question=request.affected_question,
         )
         record = await result.single()
 
-    task_id: str = record["task_id"]
-    return EnrichmentReportResponse(task_id=task_id, status="open")
+    if record is None:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to create EnrichmentTask node",
+        )
+    return EnrichmentReportResponse(task_id=task_id)
 
 
 @router.get("/enrichment/tasks", response_model=EnrichmentTasksResponse)
@@ -236,10 +254,10 @@ async def enrichment_tasks_endpoint(
             task_id=r["task_id"],
             question_text=r["question_text"] or "",
             confidence_score=r["confidence_score"],
-            source=r["source"] or "manual",
+            source=r["source"] or "unknown",
             status=r["status"] or "open",
             submitted_by=r["submitted_by"],
-            created_at=r["created_at"].to_native() if hasattr(r["created_at"], "to_native") else r["created_at"],
+            created_at=_coerce_neo4j_dt(r["created_at"]),
         )
         for r in records
     ]
