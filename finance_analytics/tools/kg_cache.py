@@ -12,7 +12,6 @@ cache entries per role combination. In v1, KG is world-readable — all roles
 get the same context — but the key structure is forward-compatible.
 """
 import hashlib
-from typing import List
 
 KG_CACHE_TTL: int = 300  # seconds
 
@@ -27,7 +26,7 @@ KG_INVALIDATION_LABELS: frozenset[str] = frozenset([
 ])
 
 
-def kg_cache_key(domain_terms: List[str], user_roles: List[str]) -> str:
+def kg_cache_key(domain_terms: list[str], user_roles: list[str]) -> str:
     terms_part = "|".join(sorted(domain_terms))
     roles_part = "|".join(sorted(user_roles))
     content = f"{terms_part}|{roles_part}"

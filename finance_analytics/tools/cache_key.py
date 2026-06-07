@@ -10,10 +10,9 @@ produces different KG context (and thus different answers) per role combination.
 """
 import hashlib
 import re
-from typing import List
 
 
-def build_cache_key(user_id: str, question: str, roles: List[str]) -> str:
+def build_cache_key(user_id: str, question: str, roles: list[str]) -> str:
     normalized = re.sub(r"\s+", " ", question.lower().strip())
     roles_part = "|".join(sorted(roles))
     content = f"{normalized}|{roles_part}"

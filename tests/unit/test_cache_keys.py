@@ -6,7 +6,6 @@ without any Redis or network dependency.
 from finance_analytics.tools.cache_key import build_cache_key
 from finance_analytics.tools.kg_cache import KG_INVALIDATION_LABELS, kg_cache_key
 
-
 # ── Query-result cache key ────────────────────────────────────────────────────
 
 class TestBuildCacheKey:

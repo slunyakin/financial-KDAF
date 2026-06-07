@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Literal
+
 from pydantic import BaseModel, Field
 
 
@@ -9,7 +10,7 @@ class RefinerOutput(BaseModel):
     # Always "exploratory" at runtime — Supervisor uses cache-first, always-exploratory routing.
     # Kept for evaluation harness introspection and future analytics.
     query_type: Literal["exploratory"] = "exploratory"
-    domain_terms: List[str]
+    domain_terms: list[str]
     requires_solver: bool
     max_retries: int = Field(
         description="2 for SQL-only queries; 1 for solver-required queries"
@@ -17,15 +18,15 @@ class RefinerOutput(BaseModel):
 
 
 class CypherContextOutput(BaseModel):
-    business_rules: List[Dict[str, Any]]
-    known_anomalies: List[Dict[str, Any]]
-    concepts: List[Dict[str, Any]]
+    business_rules: list[dict[str, Any]]
+    known_anomalies: list[dict[str, Any]]
+    concepts: list[dict[str, Any]]
     cypher_used: str
 
 
 class SQLQueryOutput(BaseModel):
     sql: str
-    rows: List[Dict[str, Any]]
+    rows: list[dict[str, Any]]
     row_count: int
     execution_ms: int
 
@@ -39,15 +40,15 @@ class PythonExecutorOutput(BaseModel):
 
 class ValidatorOutput(BaseModel):
     passed: bool
-    issues: List[str]
+    issues: list[str]
     # Keys: "graph_coverage", "sql_pass", "reflection_agree"
-    confidence_components: Dict[str, float]
+    confidence_components: dict[str, float]
 
 
 class Citation(BaseModel):
-    source_table: Optional[str] = None
-    column: Optional[str] = None
-    business_rule_id: Optional[str] = None
+    source_table: str | None = None
+    column: str | None = None
+    business_rule_id: str | None = None
     excerpt: str
     confidence: float
 
@@ -55,7 +56,7 @@ class Citation(BaseModel):
 class ReflectionOutput(BaseModel):
     addresses_question: bool
     reasoning: str
-    citations: List[Citation]
+    citations: list[Citation]
     # Composite score: 0.4×graph_coverage + 0.4×sql_pass + 0.2×reflection_agree
     # threshold=0.7; below threshold triggers EnrichmentTask write
     confidence_score: float

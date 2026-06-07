@@ -7,8 +7,6 @@ Used by:
 """
 from __future__ import annotations
 
-from typing import List, Optional
-
 import redis.asyncio as aioredis
 
 
@@ -16,7 +14,7 @@ class RedisConnector:
     def __init__(self, url: str = "redis://localhost:6379") -> None:
         self._client: aioredis.Redis = aioredis.from_url(url, decode_responses=True)
 
-    async def get(self, key: str) -> Optional[str]:
+    async def get(self, key: str) -> str | None:
         return await self._client.get(key)
 
     async def setex(self, key: str, ttl: int, value: str) -> None:
@@ -26,9 +24,9 @@ class RedisConnector:
         if keys:
             await self._client.delete(*keys)
 
-    async def scan_match(self, pattern: str) -> List[str]:
+    async def scan_match(self, pattern: str) -> list[str]:
         """Return all keys matching pattern (uses SCAN — safe on large keyspaces)."""
-        keys: List[str] = []
+        keys: list[str] = []
         async for key in self._client.scan_iter(pattern):
             keys.append(key)
         return keys

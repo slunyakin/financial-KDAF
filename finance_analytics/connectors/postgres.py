@@ -13,7 +13,6 @@ This is acceptable for TC evaluation; not a production constraint.
 from __future__ import annotations
 
 import time
-from typing import Optional
 
 import asyncpg
 
@@ -153,7 +152,7 @@ class PostgresConnector(DataLakeConnector):
     def __init__(self, dsn: str, max_pool_size: int = 50) -> None:
         self._dsn = dsn
         self._max_pool_size = max_pool_size
-        self._pool: Optional[asyncpg.Pool] = None
+        self._pool: asyncpg.Pool | None = None
 
     async def init_pool(self) -> None:
         self._pool = await asyncpg.create_pool(

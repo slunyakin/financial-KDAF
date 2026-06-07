@@ -12,8 +12,6 @@ max_retries policy (set here, not by LLM):
 """
 from __future__ import annotations
 
-from typing import List
-
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
 
@@ -59,13 +57,13 @@ time period, filters, or metric definitions to avoid the same errors.
 
 class _LLMOutput(BaseModel):
     refined_question: str
-    domain_terms: List[str] = Field(min_length=1, max_length=10)
+    domain_terms: list[str] = Field(min_length=1, max_length=10)
     requires_solver: bool
 
 
 async def refiner_node(state: AgentState) -> dict:
     question = state["question"]
-    context_notes: List[str] = state.get("context_notes", [])
+    context_notes: list[str] = state.get("context_notes", [])
 
     human_text = f"Question: {question}"
     if context_notes:

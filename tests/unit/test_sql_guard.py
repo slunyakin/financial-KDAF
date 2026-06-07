@@ -6,7 +6,6 @@ import pytest
 
 from finance_analytics.execution.sql import assert_select_only
 
-
 # ── Blocked cases ─────────────────────────────────────────────────────────────
 
 @pytest.mark.parametrize("sql", [

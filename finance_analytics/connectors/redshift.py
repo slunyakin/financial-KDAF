@@ -14,7 +14,6 @@ DSN format:
 from __future__ import annotations
 
 import time
-from typing import Optional
 
 import asyncpg
 
@@ -78,7 +77,7 @@ class RedshiftConnector(DataLakeConnector):
         self._dsn = dsn
         self._max_pool_size = max_pool_size
         self._connection_timeout = connection_timeout
-        self._pool: Optional[asyncpg.Pool] = None
+        self._pool: asyncpg.Pool | None = None
 
     async def init_pool(self) -> None:
         self._pool = await asyncpg.create_pool(

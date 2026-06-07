@@ -17,8 +17,6 @@ so future questions on the same topic improve.
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
-from typing import List, Optional
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel
@@ -50,14 +48,14 @@ Output:
 class _LLMOutput(BaseModel):
     addresses_question: bool
     reasoning: str
-    citations: List[Citation]
+    citations: list[Citation]
 
 
 async def _write_enrichment_task(
     question_text: str,
     confidence_score: float,
-    missing_context: List[str],
-) -> Optional[str]:
+    missing_context: list[str],
+) -> str | None:
     """Write an EnrichmentTask node to Neo4j. Returns the node element ID."""
     cypher = (
         "CREATE (t:EnrichmentTask {"
@@ -160,7 +158,7 @@ async def reflection_node(state: AgentState) -> dict:
     )
 
     # Write EnrichmentTask if below threshold
-    enrichment_task_id: Optional[str] = None
+    enrichment_task_id: str | None = None
     if confidence_score < _CONFIDENCE_THRESHOLD:
         enrichment_task_id = await _write_enrichment_task(
             question_text=question,

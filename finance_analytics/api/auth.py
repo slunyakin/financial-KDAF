@@ -16,8 +16,6 @@ JWT payload expected fields:
 """
 from __future__ import annotations
 
-from typing import List, Tuple
-
 import jwt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -49,14 +47,14 @@ def _decode_token(token: str) -> dict:
 
 def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(_bearer),
-) -> Tuple[str, List[str]]:
+) -> tuple[str, list[str]]:
     """FastAPI dependency — returns (user_id, user_roles) from JWT Bearer token.
 
     Inject via: current_user: Tuple[str, List[str]] = Depends(get_current_user)
     """
     payload = _decode_token(credentials.credentials)
     user_id: str | None = payload.get("sub")
-    user_roles: List[str] = payload.get("roles", [])
+    user_roles: list[str] = payload.get("roles", [])
     if not user_id:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

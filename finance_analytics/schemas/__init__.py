@@ -2,8 +2,8 @@ from finance_analytics.schemas.agent_outputs import (
     Citation,
     CypherContextOutput,
     PythonExecutorOutput,
-    ReflectionOutput,
     RefinerOutput,
+    ReflectionOutput,
     SQLQueryOutput,
     ValidatorOutput,
 )

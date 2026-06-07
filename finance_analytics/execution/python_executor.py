@@ -82,7 +82,7 @@ async def execute_solver(
             proc.communicate(input=payload.encode()),
             timeout=timeout,
         )
-    except asyncio.TimeoutError:
+    except TimeoutError:
         proc.kill()
         await proc.wait()
         raise TimeoutError(f"Solver exceeded {timeout:.0f}s time limit")

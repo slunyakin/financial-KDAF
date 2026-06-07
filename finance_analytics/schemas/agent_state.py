@@ -1,13 +1,14 @@
 from __future__ import annotations
 
-from typing import Any, List, Optional
+from typing import Any
+
 from typing_extensions import TypedDict
 
 from finance_analytics.schemas.agent_outputs import (
     CypherContextOutput,
     PythonExecutorOutput,
-    ReflectionOutput,
     RefinerOutput,
+    ReflectionOutput,
     SQLQueryOutput,
     ValidatorOutput,
 )
@@ -17,20 +18,20 @@ class AgentState(TypedDict, total=False):
     # Input fields — set by the API layer before entering the graph
     question: str
     user_id: str
-    user_roles: List[str]
+    user_roles: list[str]
 
     # Pipeline outputs — set by each agent node in sequence
-    refiner_output: Optional[RefinerOutput]
-    cypher_context: Optional[CypherContextOutput]
-    sql_result: Optional[SQLQueryOutput]
-    python_result: Optional[PythonExecutorOutput]
-    validator_output: Optional[ValidatorOutput]
-    reflection_output: Optional[ReflectionOutput]
+    refiner_output: RefinerOutput | None
+    cypher_context: CypherContextOutput | None
+    sql_result: SQLQueryOutput | None
+    python_result: PythonExecutorOutput | None
+    validator_output: ValidatorOutput | None
+    reflection_output: ReflectionOutput | None
 
     # Retry control
     retry_count: int
-    context_notes: List[str]   # accumulated validator issue strings fed back to Refiner
+    context_notes: list[str]   # accumulated validator issue strings fed back to Refiner
 
     # Terminal output fields
-    answer: Optional[Any]
+    answer: Any | None
     cached: bool

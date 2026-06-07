@@ -16,8 +16,6 @@ the Refiner can improve the question on the next attempt.
 """
 from __future__ import annotations
 
-from typing import List
-
 from finance_analytics.schemas.agent_outputs import ValidatorOutput
 from finance_analytics.schemas.agent_state import AgentState
 
@@ -31,7 +29,7 @@ async def validator_node(state: AgentState) -> dict:
     refiner_output = state.get("refiner_output")
     retry_count: int = state.get("retry_count", 0)
 
-    issues: List[str] = []
+    issues: list[str] = []
 
     # graph_coverage: did we find any relevant business rules or anomalies?
     graph_coverage = 0.0
@@ -76,7 +74,7 @@ async def validator_node(state: AgentState) -> dict:
         "retry_count": retry_count + 1,
     }
     if not passed and issues:
-        existing_notes: List[str] = state.get("context_notes", [])
+        existing_notes: list[str] = state.get("context_notes", [])
         updates["context_notes"] = existing_notes + issues
 
     return updates

@@ -7,16 +7,17 @@ tested directly against a mock connection queue.
 from __future__ import annotations
 
 import queue
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from finance_analytics.connectors.base import DataLakeConnector
 from finance_analytics.connectors.postgres import PostgresConnector
-from finance_analytics.connectors.redshift import RedshiftConnector, _format_schema as _redshift_format_schema
-from finance_analytics.connectors.snowflake import SnowflakeConnector, _format_schema as _snowflake_format_schema
+from finance_analytics.connectors.redshift import RedshiftConnector
+from finance_analytics.connectors.redshift import _format_schema as _redshift_format_schema
+from finance_analytics.connectors.snowflake import SnowflakeConnector
+from finance_analytics.connectors.snowflake import _format_schema as _snowflake_format_schema
 from finance_analytics.schemas.agent_outputs import SQLQueryOutput
-
 
 # ── Interface contract ─────────────────────────────────────────────────────────
 

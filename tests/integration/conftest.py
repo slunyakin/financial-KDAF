@@ -11,7 +11,6 @@ from __future__ import annotations
 import os
 
 import asyncpg
-import pytest
 import pytest_asyncio
 import redis.asyncio as aioredis
 from neo4j import AsyncGraphDatabase
