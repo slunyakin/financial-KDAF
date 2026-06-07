@@ -2,6 +2,28 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.0.0] - 2026-06-07
+
+### Added
+- `POST /api/v1/enrichment/report` — any authenticated user can submit a knowledge gap
+  report; creates an `EnrichmentTask` node in Neo4j with sha256-based 15-min idempotency
+  so client retries within the window produce one record, not duplicates
+- `GET /api/v1/enrichment/tasks` — knowledge engineers can list `EnrichmentTask` nodes
+  filtered by status (`open` | `resolved` | `all`), newest first, limit 1–200
+- `require_role(role)` FastAPI dependency factory in `api/auth.py`; raises HTTP 403
+  when the JWT lacks the required role
+- `EnrichmentReportRequest`, `EnrichmentReportResponse`, `EnrichmentTaskItem`,
+  `EnrichmentTasksResponse` Pydantic schemas in `schemas/enrichment.py`
+
+### Changed
+- `EnrichmentTaskItem.status` narrowed to `Literal["open", "resolved"]` (was `str`)
+- `EnrichmentTaskItem.created_at` is now optional (`datetime | None`) to handle
+  reflection-written nodes that may have a NULL timestamp
+- `EnrichmentReportResponse` now includes `api_version: "1"` for consistency with all
+  other response envelopes
+- `scripts/neo4j_seed.cypher`: added `created_at` index on `EnrichmentTask` to support
+  efficient `ORDER BY t.created_at DESC` in the tasks list query
+
 ## [0.1.0.0] - 2026-06-06
 
 ### Added
