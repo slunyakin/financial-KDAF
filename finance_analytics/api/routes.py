@@ -1,9 +1,11 @@
 """FastAPI route definitions.
 
 v1 endpoints:
-  POST /api/v1/query         — submit NL question; returns QueryResponse
-  POST /api/v1/query/stream  — same, streamed as SSE (api_version: "2")
-  GET  /api/v1/history       — list the authenticated user's past questions
+  POST /api/v1/query                  — submit NL question; returns QueryResponse
+  POST /api/v1/query/stream           — same, streamed as SSE (api_version: "2")
+  GET  /api/v1/history                — list the authenticated user's past questions
+  POST /api/v1/enrichment/report      — submit a knowledge gap report (EnrichmentTask)
+  GET  /api/v1/enrichment/tasks       — list EnrichmentTask nodes (knowledge_engineer role)
 
 Response envelope is versioned (api_version: "1") so streaming can be
 added as api_version: "2" without breaking v1 callers (CEO plan decision D8).
@@ -16,7 +18,13 @@ from pydantic import BaseModel
 
 import finance_analytics.connectors as conn
 from finance_analytics.agents.supervisor import run_query, run_query_stream
-from finance_analytics.api.auth import get_current_user
+from finance_analytics.api.auth import get_current_user, require_role
+from finance_analytics.schemas.enrichment import (
+    EnrichmentReportRequest,
+    EnrichmentReportResponse,
+    EnrichmentTaskItem,
+    EnrichmentTasksResponse,
+)
 from finance_analytics.schemas.query_response import (
     QueryHistoryResponse,
     QueryResponse,
@@ -137,3 +145,102 @@ async def history_endpoint(
         for r in records
     ]
     return QueryHistoryResponse(items=items, total=total)
+
+
+_ENRICHMENT_REPORT_CYPHER = """\
+CREATE (t:EnrichmentTask {
+  question_text:     $description,
+  confidence_score:  null,
+  missing_context:   [],
+  status:            'open',
+  source:            'manual',
+  submitted_by:      $user_id,
+  affected_question: $affected_question,
+  created_at:        datetime()
+})
+RETURN elementId(t) AS task_id
+"""
+
+_ENRICHMENT_TASKS_CYPHER = """\
+MATCH (t:EnrichmentTask)
+WHERE $status = 'all' OR t.status = $status
+RETURN elementId(t)   AS task_id,
+       t.question_text AS question_text,
+       t.confidence_score AS confidence_score,
+       t.source        AS source,
+       t.status        AS status,
+       t.submitted_by  AS submitted_by,
+       t.created_at    AS created_at
+ORDER BY t.created_at DESC
+LIMIT $limit
+"""
+
+_ENRICHMENT_TASKS_COUNT_CYPHER = """\
+MATCH (t:EnrichmentTask)
+WHERE $status = 'all' OR t.status = $status
+RETURN count(t) AS total
+"""
+
+
+@router.post("/enrichment/report", response_model=EnrichmentReportResponse)
+async def enrichment_report_endpoint(
+    request: EnrichmentReportRequest,
+    current_user: tuple[str, list[str]] = Depends(get_current_user),
+) -> EnrichmentReportResponse:
+    """Submit a knowledge gap report as an EnrichmentTask node.
+
+    Auth: any authenticated user.
+    """
+    user_id, _ = current_user
+    neo4j = conn.get_neo4j()
+
+    async with neo4j.driver.session() as session:
+        result = await session.run(
+            _ENRICHMENT_REPORT_CYPHER,
+            description=request.description,
+            user_id=user_id,
+            affected_question=request.affected_question,
+        )
+        record = await result.single()
+
+    task_id: str = record["task_id"]
+    return EnrichmentReportResponse(task_id=task_id, status="open")
+
+
+@router.get("/enrichment/tasks", response_model=EnrichmentTasksResponse)
+async def enrichment_tasks_endpoint(
+    current_user: tuple[str, list[str]] = Depends(require_role("knowledge_engineer")),
+    status: str = Query(default="open", pattern="^(open|resolved|all)$"),
+    limit: int = Query(default=50, ge=1, le=200),
+) -> EnrichmentTasksResponse:
+    """List EnrichmentTask nodes. Requires knowledge_engineer role.
+
+    Query params:
+      status — open | resolved | all (default: open)
+      limit  — 1–200 (default 50)
+    """
+    neo4j = conn.get_neo4j()
+
+    async with neo4j.driver.session() as session:
+        result = await session.run(
+            _ENRICHMENT_TASKS_CYPHER, status=status, limit=limit
+        )
+        records = await result.data()
+
+        count_result = await session.run(_ENRICHMENT_TASKS_COUNT_CYPHER, status=status)
+        count_record = await count_result.single()
+        total: int = count_record["total"] if count_record else 0
+
+    items = [
+        EnrichmentTaskItem(
+            task_id=r["task_id"],
+            question_text=r["question_text"] or "",
+            confidence_score=r["confidence_score"],
+            source=r["source"] or "manual",
+            status=r["status"] or "open",
+            submitted_by=r["submitted_by"],
+            created_at=r["created_at"].to_native() if hasattr(r["created_at"], "to_native") else r["created_at"],
+        )
+        for r in records
+    ]
+    return EnrichmentTasksResponse(items=items, total=total)

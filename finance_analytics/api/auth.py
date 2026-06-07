@@ -61,3 +61,21 @@ def get_current_user(
             detail="Token missing 'sub' field",
         )
     return user_id, user_roles
+
+
+def require_role(role: str):
+    """FastAPI dependency factory — raises HTTP 403 if user lacks the required role.
+
+    Usage:
+        Depends(require_role("knowledge_engineer"))
+    """
+    def _check(current_user: tuple[str, list[str]] = Depends(get_current_user)):
+        user_id, user_roles = current_user
+        if role not in user_roles:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Role '{role}' required",
+            )
+        return current_user
+
+    return _check
