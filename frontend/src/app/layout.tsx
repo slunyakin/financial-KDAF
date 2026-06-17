@@ -1,6 +1,11 @@
 import type { Metadata } from "next";
 import { AuthGuard } from "@/components/AuthGuard";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import "./globals.css";
+import { Geist } from "next/font/google";
+import { cn } from "@/lib/utils";
+
+const geist = Geist({ subsets: ["latin"], variable: "--font-sans" });
 
 export const metadata: Metadata = {
   title: "financial-KDAF — Knowledge Engineer",
@@ -9,9 +14,11 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
-      <body className="bg-gray-950 text-gray-100 min-h-screen antialiased">
-        <AuthGuard>{children}</AuthGuard>
+    <html lang="en" className={cn("dark font-sans", geist.variable)}>
+      <body className="bg-background text-foreground min-h-screen antialiased">
+        <TooltipProvider>
+          <AuthGuard>{children}</AuthGuard>
+        </TooltipProvider>
       </body>
     </html>
   );

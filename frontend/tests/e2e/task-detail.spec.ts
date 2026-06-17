@@ -122,11 +122,11 @@ test.describe("Task detail page", () => {
     resolve!();
   });
 
-  test("chat panel renders welcome message and input field", async ({ page }) => {
+  test("chat panel renders welcome message and composer input", async ({ page }) => {
     await page.goto("/enrichment/task-001");
     await expect(page.getByText(/This gap was triggered by/i)).toBeVisible();
-    await expect(page.getByPlaceholder(/ask about this knowledge gap/i)).toBeVisible();
-    await expect(page.getByRole("button", { name: /send/i })).toBeVisible();
+    await expect(page.getByRole("textbox", { name: /message input/i })).toBeVisible();
+    await expect(page.getByRole("button", { name: /send message/i })).toBeVisible();
   });
 
   test("shows resolved banner after successful commit instead of write-back panel", async ({ page }) => {
