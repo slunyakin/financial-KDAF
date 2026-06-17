@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
 export default function LoginPage() {
@@ -9,6 +9,10 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (localStorage.getItem("kdaf_token")) router.replace("/enrichment");
+  }, [router]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -44,10 +48,11 @@ export default function LoginPage() {
 
         <form onSubmit={handleSubmit} className="bg-gray-900 border border-gray-800 rounded-xl px-6 py-8 space-y-5">
           <div className="space-y-1.5">
-            <label className="text-xs font-medium text-gray-400 uppercase tracking-wider">
+            <label htmlFor="username" className="text-xs font-medium text-gray-400 uppercase tracking-wider">
               Username
             </label>
             <input
+              id="username"
               type="text"
               autoComplete="username"
               required
@@ -59,10 +64,11 @@ export default function LoginPage() {
           </div>
 
           <div className="space-y-1.5">
-            <label className="text-xs font-medium text-gray-400 uppercase tracking-wider">
+            <label htmlFor="password" className="text-xs font-medium text-gray-400 uppercase tracking-wider">
               Password
             </label>
             <input
+              id="password"
               type="password"
               autoComplete="current-password"
               required
