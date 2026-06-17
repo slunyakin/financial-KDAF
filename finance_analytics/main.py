@@ -12,9 +12,11 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 import finance_analytics.connectors as connectors
 from finance_analytics.agents.supervisor import get_graph
+from finance_analytics.api.auth_token import init_user_store, router as auth_router
 from finance_analytics.api.routes import router
 from finance_analytics.config import get_settings
 from finance_analytics.connectors.factory import build_data_lake_connector
@@ -38,6 +40,7 @@ async def lifespan(app: FastAPI):
     await data_lake.init_pool()
 
     connectors.init_connectors(neo4j=neo4j, redis=redis, data_lake=data_lake)
+    init_user_store()
 
     # Warm the LangGraph compilation (avoids first-request latency spike)
     get_graph()
@@ -54,6 +57,15 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+app.include_router(auth_router)
 app.include_router(router)
 
 

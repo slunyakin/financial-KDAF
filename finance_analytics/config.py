@@ -40,6 +40,14 @@ class Settings(BaseSettings):
     # JWT — HS256; change JWT_SECRET in production
     JWT_SECRET: str = "change-me-in-production"
     JWT_ALGORITHM: str = "HS256"
+    JWT_EXPIRE_SECONDS: int = 86400  # 24 h
+
+    # Users — semicolon-separated list of "username:password:role1,role2"
+    # Example: KDAF_USERS=alice:secret:analyst;bob:secret2:knowledge_engineer
+    KDAF_USERS: str = ""
+
+    # Anthropic API key — required for all LLM calls
+    ANTHROPIC_API_KEY: str = ""
 
     # LLM — default to latest capable model; override per deployment
     LLM_MODEL: str = "claude-sonnet-4-6"
