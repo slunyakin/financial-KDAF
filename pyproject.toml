@@ -19,6 +19,7 @@ dependencies = [
     "pydantic-settings>=2.3",
     # Auth
     "PyJWT>=2.8",
+    "bcrypt>=4.1",
     # Knowledge graph
     "neo4j>=5.20",
     # Data connectors
