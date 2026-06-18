@@ -1,61 +1,11 @@
 "use client";
 
 import { useParams, useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
-import { AssistantRuntimeProvider, useLocalRuntime, type ChatModelAdapter } from "@assistant-ui/react";
+import { useEffect, useMemo, useState } from "react";
+import { AssistantRuntimeProvider } from "@assistant-ui/react";
+import { AssistantChatTransport, useChatRuntime } from "@assistant-ui/react-ai-sdk";
 import { Thread } from "@/components/assistant-ui/thread";
 import { getToken, graphWrite, resolveTask, type EnrichmentTask } from "@/lib/api";
-
-// ── backend chat adapter ──────────────────────────────────────────────────────
-
-const makeAdapter = (taskQuestion: string): ChatModelAdapter => ({
-  async *run({ messages, abortSignal }) {
-    const last = messages.at(-1);
-    const question = last?.content
-      .filter((p): p is { type: "text"; text: string } => p.type === "text")
-      .map((p) => p.text)
-      .join(" ") ?? taskQuestion;
-
-    const res = await fetch("/api/v1/query/stream", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${getToken()}`,
-      },
-      body: JSON.stringify({ question }),
-      signal: abortSignal,
-    });
-
-    if (!res.ok || !res.body) throw new Error(`Stream error ${res.status}`);
-
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
-    let accumulated = "";
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split("\n\n");
-      buffer = lines.pop() ?? "";
-
-      for (const line of lines) {
-        if (!line.startsWith("data: ")) continue;
-        const payload = JSON.parse(line.slice(6));
-        let chunk = "";
-        if (payload.event === "result") chunk = payload.summary;
-        else if (payload.event === "node_done" && payload.summary)
-          chunk = `\n*[${payload.node}]* ${payload.summary}\n`;
-        else if (payload.event === "error") chunk = `\nError: ${payload.message}`;
-        if (chunk) {
-          accumulated += chunk;
-          yield { content: [{ type: "text" as const, text: accumulated }] };
-        }
-      }
-    }
-  },
-});
 
 // ── write-back panel ──────────────────────────────────────────────────────────
 
@@ -161,8 +111,12 @@ export default function TaskDetailPage() {
       .catch(console.error);
   }, [taskId]);
 
-  const adapterRef = useRef(makeAdapter(task?.question_text ?? ""));
-  const runtime = useLocalRuntime(adapterRef.current);
+  const transport = useMemo(
+    () => new AssistantChatTransport({ api: "/api/chat", headers: { Authorization: `Bearer ${getToken()}` } }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+  const runtime = useChatRuntime({ transport });
 
   const welcome = task?.question_text
     ? `This gap was triggered by: "${task.question_text}". Ask me what context is missing.`
