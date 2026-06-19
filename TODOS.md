@@ -15,9 +15,15 @@ Items deferred from the CEO plan + engineering review. Each item has a priority 
 
 - [x] **Streaming responses** — `POST /api/v1/query/stream` returns SSE. `NodeDoneEvent` after each pipeline stage; `ResultEvent` (api_version: "2") with full answer at the end. Uses LangGraph `astream(stream_mode="updates")`. `schemas/stream_events.py`, `agents/supervisor.py::run_query_stream`, `api/routes.py`. v1 callers unaffected.
 - [x] **Query history endpoint** — Replay past CFO questions. `Question` nodes written by v1 support this without migration. Scoped to `user_id` at read time.
-- [ ] **Knowledge engineer enrichment UI** — Chat interface for gap identification and graph mutation. `EnrichmentTask` nodes drive the conversation flow. Write-back proposals require user confirmation before `POST /api/v1/graph/write`.
+- [x] **Knowledge engineer enrichment UI** — Chat interface for gap identification and graph mutation. `EnrichmentTask` nodes drive the conversation flow. Write-back proposals require user confirmation before `POST /api/v1/graph/write`.
 
 ## P3 — Backlog / v2
+
+- [ ] **BFF route: CRLF SSE parsing** — `frontend/src/app/api/chat/route.ts` splits on `\n\n` but some proxies or Python SSE emitters may use `\r\n\r\n`. Low-risk in Docker Compose (same host), but harden before adding a reverse proxy. Fix: normalize `chunk.replace(/\r\n/g, '\n')` before splitting.
+
+- [ ] **taskId path-traversal validation** — `frontend/src/app/enrichment/[taskId]/page.tsx` passes `decodeURIComponent(taskId)` directly to `resolveTask` and `graphWrite`. A crafted URL with `../` segments could produce unexpected API paths. Fix: validate `taskId` matches `^[\w-]+$` before decode.
+
+- [ ] **Task list O(N) scan** — `page.tsx` fetches `?limit=200` and does a client-side `find()` to locate the task. Works for the demo dataset; replace with `GET /api/v1/enrichment/tasks/{taskId}` once that endpoint exists.
 
 - [ ] **EnrichmentTask re-open after resolution** — `POST /api/v1/enrichment/report` uses `MERGE … ON CREATE SET`; if a knowledge engineer resolves a task and the same user re-submits the identical description within the 15-min idempotency window, the MERGE no-ops and the node stays `resolved` while the API response still claims `status: open`. Fix: add `ON MATCH SET t.status = 'open' WHERE t.status = 'resolved'` to the MERGE Cypher and a regression test for this path. Low-frequency edge (15-min window); deferred to keep issue #2 focused.
 

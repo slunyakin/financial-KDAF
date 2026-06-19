@@ -129,6 +129,86 @@ test.describe("Task detail page", () => {
     await expect(page.getByRole("button", { name: /send message/i })).toBeVisible();
   });
 
+  // ── chat streaming (native AI SDK) ──────────────────────────────────────────
+
+  // Helpers: build the UIMessageChunk SSE body that the BFF /api/chat emits.
+  // The transport validates the x-vercel-ai-ui-message-stream header.
+  const AI_SDK_HEADERS = {
+    "content-type": "text/event-stream",
+    "cache-control": "no-cache",
+    "x-vercel-ai-ui-message-stream": "v1",
+  };
+
+  function sseBody(chunks: object[]): string {
+    return chunks.map((c) => `data: ${JSON.stringify(c)}\n\n`).join("");
+  }
+
+  test("sending a message calls /api/chat and renders tool steps + final answer", async ({ page }) => {
+    await page.route("/api/chat", (route) =>
+      route.fulfill({
+        status: 200,
+        headers: AI_SDK_HEADERS,
+        body: sseBody([
+          { type: "tool-input-available", toolCallId: "n1", toolName: "check_cache", input: {}, dynamic: true },
+          { type: "tool-output-available", toolCallId: "n1", output: "cache miss", dynamic: true },
+          { type: "tool-input-available", toolCallId: "n2", toolName: "refiner", input: {}, dynamic: true },
+          { type: "tool-output-available", toolCallId: "n2", output: "3 terms; no solver", dynamic: true },
+          { type: "text-start", id: "t1" },
+          { type: "text-delta", id: "t1", delta: "Revenue grew 12% in Q3." },
+          { type: "text-end", id: "t1" },
+        ]),
+      })
+    );
+
+    await page.goto("/enrichment/task-001");
+    await page.getByRole("textbox", { name: /message input/i }).fill("What is the revenue trend?");
+    await page.getByRole("button", { name: /send message/i }).click();
+
+    // ToolGroupTrigger renders "N tool calls" (collapsed group — individual entries are inside)
+    await expect(page.getByText(/tool calls?/i).first()).toBeVisible({ timeout: 8000 });
+    await expect(page.getByText("Revenue grew 12% in Q3.")).toBeVisible();
+  });
+
+  test("node progress does not appear as inline markdown *[node]* text", async ({ page }) => {
+    await page.route("/api/chat", (route) =>
+      route.fulfill({
+        status: 200,
+        headers: AI_SDK_HEADERS,
+        body: sseBody([
+          { type: "tool-input-available", toolCallId: "n1", toolName: "refiner", input: {}, dynamic: true },
+          { type: "tool-output-available", toolCallId: "n1", output: "refined", dynamic: true },
+          { type: "text-start", id: "t1" },
+          { type: "text-delta", id: "t1", delta: "Final answer." },
+          { type: "text-end", id: "t1" },
+        ]),
+      })
+    );
+
+    await page.goto("/enrichment/task-001");
+    await page.getByRole("textbox", { name: /message input/i }).fill("test");
+    await page.getByRole("button", { name: /send message/i }).click();
+
+    await expect(page.getByText("Final answer.")).toBeVisible({ timeout: 8000 });
+    // The old adapter injected *[refiner]* as markdown — this must not appear
+    await expect(page.getByText(/\*\[refiner\]\*/)).not.toBeVisible();
+  });
+
+  test("chat error from backend renders error state", async ({ page }) => {
+    await page.route("/api/chat", (route) =>
+      route.fulfill({
+        status: 200,
+        headers: AI_SDK_HEADERS,
+        body: sseBody([{ type: "error", errorText: "Backend unavailable" }]),
+      })
+    );
+
+    await page.goto("/enrichment/task-001");
+    await page.getByRole("textbox", { name: /message input/i }).fill("test");
+    await page.getByRole("button", { name: /send message/i }).click();
+
+    await expect(page.getByText(/backend unavailable/i)).toBeVisible({ timeout: 8000 });
+  });
+
   test("shows resolved banner after successful commit instead of write-back panel", async ({ page }) => {
     await page.route("/api/v1/graph/write", (route) =>
       route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ api_version: "1", element_id: "4:z:0" }) })
