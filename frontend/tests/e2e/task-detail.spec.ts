@@ -164,9 +164,8 @@ test.describe("Task detail page", () => {
     await page.getByRole("textbox", { name: /message input/i }).fill("What is the revenue trend?");
     await page.getByRole("button", { name: /send message/i }).click();
 
-    // Native tool step renders as "Used tool: <node>" — not inline markdown
-    await expect(page.getByText(/used tool/i).first()).toBeVisible({ timeout: 8000 });
-    await expect(page.getByText(/check_cache/i)).toBeVisible();
+    // ToolGroupTrigger renders "N tool calls" (collapsed group — individual entries are inside)
+    await expect(page.getByText(/tool calls?/i).first()).toBeVisible({ timeout: 8000 });
     await expect(page.getByText("Revenue grew 12% in Q3.")).toBeVisible();
   });
 
