@@ -9,11 +9,10 @@ import { getToken, graphWrite, resolveTask, type EnrichmentTask } from "@/lib/ap
 
 // ── write-back panel ──────────────────────────────────────────────────────────
 
-function WriteBackPanel({ taskId, onResolved }: { taskId: string; onResolved: () => void }) {
+function WriteBackPanel({ taskId, onResolved }: { taskId: string; onResolved: (elementId: string) => void }) {
   const [cypher, setCypher] = useState("");
   const [preview, setPreview] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [result, setResult] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   async function handleSubmit() {
@@ -22,8 +21,7 @@ function WriteBackPanel({ taskId, onResolved }: { taskId: string; onResolved: ()
     try {
       const res = await graphWrite({ cypher });
       await resolveTask(taskId);
-      setResult(res.element_id);
-      onResolved();
+      onResolved(res.element_id);
     } catch (e) {
       setError(String(e));
     } finally {
@@ -59,27 +57,21 @@ function WriteBackPanel({ taskId, onResolved }: { taskId: string; onResolved: ()
             <pre className="text-sm font-mono text-foreground whitespace-pre-wrap break-words">{cypher}</pre>
           </div>
 
-          {result ? (
-            <p className="text-green-400 text-sm">
-              Written — node <code className="font-mono">{result}</code>. Task resolved.
-            </p>
-          ) : (
-            <div className="flex gap-2 justify-end">
-              <button
-                onClick={() => setPreview(false)}
-                className="px-4 py-2 bg-secondary hover:bg-secondary/80 text-secondary-foreground rounded text-sm font-medium transition-colors"
-              >
-                Edit
-              </button>
-              <button
-                onClick={handleSubmit}
-                disabled={submitting}
-                className="px-4 py-2 bg-green-700 hover:bg-green-600 disabled:opacity-40 disabled:cursor-not-allowed rounded text-sm font-medium transition-colors"
-              >
-                {submitting ? "Committing…" : "Commit to KG"}
-              </button>
-            </div>
-          )}
+          <div className="flex gap-2 justify-end">
+            <button
+              onClick={() => setPreview(false)}
+              className="px-4 py-2 bg-secondary hover:bg-secondary/80 text-secondary-foreground rounded text-sm font-medium transition-colors"
+            >
+              Edit
+            </button>
+            <button
+              onClick={handleSubmit}
+              disabled={submitting}
+              className="px-4 py-2 bg-green-700 hover:bg-green-600 disabled:opacity-40 disabled:cursor-not-allowed rounded text-sm font-medium transition-colors"
+            >
+              {submitting ? "Committing…" : "Commit to KG"}
+            </button>
+          </div>
 
           {error && <p className="text-destructive text-sm">{error}</p>}
         </>
@@ -95,6 +87,7 @@ export default function TaskDetailPage() {
   const router = useRouter();
   const [task, setTask] = useState<EnrichmentTask | null>(null);
   const [resolved, setResolved] = useState(false);
+  const [resolvedElementId, setResolvedElementId] = useState<string | null>(null);
 
   useEffect(() => {
     fetch(`/api/v1/enrichment/tasks?status=all&limit=200`, {
@@ -158,9 +151,14 @@ export default function TaskDetailPage() {
           </div>
           <div className="overflow-y-auto px-6 py-6">
             {resolved ? (
-              <p className="text-green-400 text-sm">Task resolved. Return to the task list.</p>
+              <p className="text-green-400 text-sm">
+                Written — node <code className="font-mono">{resolvedElementId}</code>. Task resolved. Return to the task list.
+              </p>
             ) : (
-              <WriteBackPanel taskId={decodeURIComponent(taskId)} onResolved={() => setResolved(true)} />
+              <WriteBackPanel
+                taskId={decodeURIComponent(taskId)}
+                onResolved={(id) => { setResolvedElementId(id); setResolved(true); }}
+              />
             )}
           </div>
         </div>
