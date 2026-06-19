@@ -1,4 +1,4 @@
-# ADR-006: Vercel AI SDK Data Stream Protocol for Frontend Streaming
+# ADR-006: Vercel AI SDK UIMessage Stream Protocol for Frontend Streaming
 
 **Status:** Accepted
 **Date:** 2026-06-17
@@ -13,7 +13,7 @@ Problems with that approach:
 - The adapter accumulated text and yielded the full string on every event (not a streaming delta)
 - JWT auth was manually injected inside the adapter's `fetch()` call
 
-The root cause was a missing Next.js BFF route: `useVercelUseChatRuntime` / `useChatRuntime` require a route that speaks the AI SDK data stream protocol. Without that route, `useLocalRuntime` + custom adapter was the only option.
+The root cause was a missing Next.js BFF route: `useChatRuntime` requires a route that speaks the AI SDK UIMessage stream protocol (v6). Without that route, `useLocalRuntime` + custom adapter was the only option.
 
 ## Decision
 
@@ -22,26 +22,26 @@ Add a Next.js route handler at `frontend/src/app/api/chat/route.ts` (the BFF lay
 1. Accepts `POST` with the standard AI SDK `{ messages }` body
 2. Extracts the Bearer token from the incoming `Authorization` header and forwards it to the Python backend
 3. Calls `POST /api/v1/query/stream` on the Python backend (unchanged)
-4. Converts Python SSE events to AI SDK data stream protocol using `createDataStreamResponse` + `formatDataStreamPart` from the `ai` package:
-   - `node_done` → `tool_call` + `tool_result` (each LangGraph node renders as a collapsible step in the Thread UI)
-   - After all tool calls: `finish_step` with `finishReason: "tool-calls", isContinued: true`
-   - `result` → `text` + `finish_step` (stop) + `finish_message`
-   - `error` → `error` part
+4. Converts Python SSE events to AI SDK v6 UIMessageChunk protocol using `createUIMessageStream` + `createUIMessageStreamResponse` from `ai`:
+   - `node_done` → `tool-input-available` (dynamic) + `tool-output-available` (dynamic): each LangGraph node renders as a collapsible step in the Thread UI
+   - `result` → `text-start` + `text-delta` + `text-end`
+   - `error` → `error` chunk
 
-Replace `useLocalRuntime` + `makeAdapter` in `frontend/src/app/enrichment/[taskId]/page.tsx` with `useChatRuntime({ api: "/api/chat", headers: { Authorization: ... } })` from `@assistant-ui/react-ai-sdk`.
+Replace `useLocalRuntime` + `makeAdapter` in `frontend/src/app/enrichment/[taskId]/page.tsx` with `useChatRuntime({ transport })` where `transport = new AssistantChatTransport({ api: "/api/chat", headers: { Authorization: ... } })` from `@assistant-ui/react-ai-sdk`. The transport is stabilized with `useMemo([], [])` to prevent re-instantiation on every render.
 
 The Python backend (`run_query_stream`, `POST /api/v1/query/stream`) is **unchanged**.
 
-## Mapping: Python SSE → AI SDK data stream
+## Mapping: Python SSE → AI SDK UIMessageChunk (v6)
 
 ```
-node_done (check_cache)    → tool_call(id, "check_cache", {}) + tool_result(id, "cache miss")
-node_done (refiner)        → tool_call(id, "refiner", {})     + tool_result(id, "3 terms; no solver")
-...                           (one pair per node)
-                           → finish_step(isContinued: true, finishReason: "tool-calls")
-result                     → text("The top 10 products…")
-                           → finish_step(isContinued: false, finishReason: "stop")
-                           → finish_message(finishReason: "stop")
+node_done (check_cache)    → { type: "tool-input-available",  toolCallId: id, toolName: "check_cache", input: {}, dynamic: true }
+                           → { type: "tool-output-available", toolCallId: id, output: "cache miss",    dynamic: true }
+node_done (refiner)        → { type: "tool-input-available",  toolCallId: id, toolName: "refiner",     input: {}, dynamic: true }
+                           → { type: "tool-output-available", toolCallId: id, output: "3 terms; …",    dynamic: true }
+result                     → { type: "text-start", id }
+                           → { type: "text-delta", id, delta: "The top 10 products…" }
+                           → { type: "text-end",   id }
+error                      → { type: "error", errorText: "…" }
 ```
 
 The Thread's existing `group-tool` renderer collapses all tool call parts into a single `ToolGroupRoot` with a count badge, each expanding to show the node name and result summary via `ToolFallback`.
