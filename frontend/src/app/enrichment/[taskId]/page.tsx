@@ -21,8 +21,8 @@ function WriteBackPanel({ taskId, onResolved }: { taskId: string; onResolved: ()
     setError(null);
     try {
       const res = await graphWrite({ cypher });
-      setResult(res.element_id);
       await resolveTask(taskId);
+      setResult(res.element_id);
       onResolved();
     } catch (e) {
       setError(String(e));
@@ -112,8 +112,7 @@ export default function TaskDetailPage() {
   }, [taskId]);
 
   const transport = useMemo(
-    () => new AssistantChatTransport({ api: "/api/chat", headers: { Authorization: `Bearer ${getToken()}` } }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    () => new AssistantChatTransport({ api: "/api/chat", headers: () => ({ Authorization: `Bearer ${getToken()}` }) }),
     [],
   );
   const runtime = useChatRuntime({ transport });
@@ -122,10 +121,13 @@ export default function TaskDetailPage() {
     ? `This gap was triggered by: "${task.question_text}". Ask me what context is missing.`
     : "Ask me about this knowledge gap.";
 
-  const WelcomeMessage = () => (
-    <div className="flex flex-col items-center px-4 text-center mb-6">
-      <p className="text-muted-foreground text-sm">{welcome}</p>
-    </div>
+  const WelcomeMessage = useMemo(
+    () => () => (
+      <div className="flex flex-col items-center px-4 text-center mb-6">
+        <p className="text-muted-foreground text-sm">{welcome}</p>
+      </div>
+    ),
+    [welcome],
   );
 
   return (

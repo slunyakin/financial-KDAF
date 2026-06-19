@@ -4,17 +4,25 @@ import { type NextRequest } from "next/server";
 export const runtime = "nodejs";
 
 type PythonEvent =
-  | { event: "node_done"; node: string; summary: string; api_version: string }
-  | { event: "result"; summary: string; citations: unknown[]; confidence_score: number; cached: boolean; api_version: string }
-  | { event: "error"; message: string; api_version: string };
+  | { event: "node_done"; node: string; summary: string }
+  | { event: "result"; summary: string }
+  | { event: "error"; message: string };
 
 export async function POST(req: NextRequest) {
   const authHeader = req.headers.get("Authorization") ?? "";
 
-  const body = await req.json();
-  const messages: Array<{ role: string; content: string | Array<{ type: string; text?: string }> }> =
-    body.messages ?? [];
+  if (!authHeader) {
+    return new Response(JSON.stringify({ detail: "Unauthorized" }), { status: 401 });
+  }
 
+  let body: { messages?: Array<{ role: string; content: string | Array<{ type: string; text?: string }> }> };
+  try {
+    body = await req.json();
+  } catch {
+    return new Response(JSON.stringify({ detail: "Invalid JSON body" }), { status: 400 });
+  }
+
+  const messages = body.messages ?? [];
   const lastUser = [...messages].reverse().find((m) => m.role === "user");
   const question =
     typeof lastUser?.content === "string"
@@ -25,7 +33,7 @@ export async function POST(req: NextRequest) {
           .join(" ");
 
   if (!question.trim()) {
-    return new Response(JSON.stringify({ error: "No question provided" }), { status: 400 });
+    return new Response(JSON.stringify({ detail: "No question provided" }), { status: 400 });
   }
 
   const backendUrl = process.env.BACKEND_URL ?? "http://localhost:8000";
@@ -39,6 +47,7 @@ export async function POST(req: NextRequest) {
           Authorization: authHeader,
         },
         body: JSON.stringify({ question }),
+        signal: req.signal,
       });
 
       if (!res.ok || !res.body) {
@@ -49,7 +58,7 @@ export async function POST(req: NextRequest) {
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
-      let textId: string | null = null;
+      let hasResult = false;
 
       while (true) {
         const { done, value } = await reader.read();
@@ -83,7 +92,8 @@ export async function POST(req: NextRequest) {
               dynamic: true,
             });
           } else if (payload.event === "result") {
-            textId = generateId();
+            hasResult = true;
+            const textId = generateId();
             writer.write({ type: "text-start", id: textId });
             writer.write({ type: "text-delta", id: textId, delta: payload.summary });
             writer.write({ type: "text-end", id: textId });
@@ -91,6 +101,13 @@ export async function POST(req: NextRequest) {
             writer.write({ type: "error", errorText: payload.message });
           }
         }
+      }
+
+      // Flush any remaining bytes from multi-byte UTF-8 sequences
+      buffer += decoder.decode();
+      // If the backend never emitted a result event, surface an error
+      if (!hasResult) {
+        writer.write({ type: "error", errorText: "No result received from backend" });
       }
     },
     onError: (err) => (err instanceof Error ? err.message : String(err)),
