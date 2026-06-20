@@ -21,16 +21,16 @@ Items deferred from the CEO plan + engineering review. Each item has a priority 
 
 - [ ] **BFF route: CRLF SSE parsing** — `frontend/src/app/api/chat/route.ts` splits on `\n\n` but some proxies or Python SSE emitters may use `\r\n\r\n`. Low-risk in Docker Compose (same host), but harden before adding a reverse proxy. Fix: normalize `chunk.replace(/\r\n/g, '\n')` before splitting.
 
-- [ ] **taskId path-traversal validation** — `frontend/src/app/enrichment/[taskId]/page.tsx` passes `decodeURIComponent(taskId)` directly to `resolveTask` and `graphWrite`. A crafted URL with `../` segments could produce unexpected API paths. Fix: validate `taskId` matches `^[\w-]+$` before decode.
+- [x] **taskId path-traversal validation** — `frontend/src/app/enrichment/[taskId]/page.tsx` validates `taskId` against `^[\w-]+$` before any API call; server-side `Path(..., pattern=r"^[\w-]{1,128}$")` on GET and PATCH endpoints adds defence-in-depth.
 
-- [ ] **Task list O(N) scan** — `page.tsx` fetches `?limit=200` and does a client-side `find()` to locate the task. Works for the demo dataset; replace with `GET /api/v1/enrichment/tasks/{taskId}` once that endpoint exists.
+- [x] **Task list O(N) scan** — `page.tsx` now calls `GET /api/v1/enrichment/tasks/{taskId}` directly; no client-side list scan.
 
 - [ ] **EnrichmentTask re-open after resolution** — `POST /api/v1/enrichment/report` uses `MERGE … ON CREATE SET`; if a knowledge engineer resolves a task and the same user re-submits the identical description within the 15-min idempotency window, the MERGE no-ops and the node stays `resolved` while the API response still claims `status: open`. Fix: add `ON MATCH SET t.status = 'open' WHERE t.status = 'resolved'` to the MERGE Cypher and a regression test for this path. Low-frequency edge (15-min window); deferred to keep issue #2 focused.
 
 - [ ] **Production connector: BigQuery** — `connectors/bigquery.py`. Use `google-cloud-bigquery` with `asyncio.to_thread()` dispatch. BigQuery has no persistent connection pool — create a `bigquery.Client` per process; wrap in the `DataLakeConnector` ABC.
 - [ ] **Production connector: DuckDB / S3-Parquet** — `connectors/duckdb.py`. Use `duckdb` in-process engine; reads customer Parquet files from S3 via `httpfs` extension. Pool model: single-writer lock (DuckDB is single-writer); reads can parallelize with separate in-memory DBs per request.
 - [ ] **KG-as-queryable-API endpoint** — `GET /api/v1/graph/context?q=...`. Turns the KG into a platform other agents can query. Depends on v1 KG being stable.
-- [ ] **Fast-path for questions without KG context** — A simple aggregation question that has no matching BusinessRule or KnownAnomaly should short-circuit the Text-to-Cypher step (or run it with a timeout cap). Reduces cold-cache latency for simple queries by ~200ms.
+- [x] **Fast-path for questions without KG context** — `text_to_cypher_node` short-circuits when `domain_terms` is empty, returning an empty `CypherContextOutput` without hitting Neo4j. Saves ~200ms on simple aggregation queries.
 - [ ] **Per-company deployment ops tooling** — Provisioning automation, upgrade coordination, and monitoring across customer deployments. Each company runs its own Neo4j + Postgres + Redis; as customer count grows, manual ops doesn't scale.
 - [ ] **Adversarial evaluation suite** — Extend beyond the 5 golden TCs: ambiguous questions, cross-domain questions, questions with no good answer, graceful-failure cases. The confidence threshold of 0.7 should be derived from evaluation data, not assumed.
 
