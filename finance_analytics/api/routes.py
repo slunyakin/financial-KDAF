@@ -15,7 +15,7 @@ from __future__ import annotations
 import hashlib
 import time
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
@@ -273,18 +273,74 @@ RETURN t.id              AS task_id,
        t.status         AS status,
        t.submitted_by   AS submitted_by,
        t.created_at     AS created_at
+LIMIT 1
 """
 
 
 @router.get("/enrichment/tasks/{task_id}", response_model=EnrichmentTaskItem)
 async def get_enrichment_task_endpoint(
-    task_id: str,
+    task_id: str = Path(..., pattern=r"^[\w-]{1,128}$"),
     current_user: tuple[str, list[str]] = Depends(require_role("knowledge_engineer")),
 ) -> EnrichmentTaskItem:
     """Fetch a single EnrichmentTask by ID. Requires knowledge_engineer role."""
     neo4j = conn.get_neo4j()
     async with neo4j.driver.session() as session:
         result = await session.run(_ENRICHMENT_TASK_BY_ID_CYPHER, task_id=task_id)
+        record = await result.single()
+
+    if record is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    return EnrichmentTaskItem(
+        task_id=record["task_id"],
+        question_text=record["question_text"] or "",
+        confidence_score=record["confidence_score"],
+        source=record["source"] or "unknown",
+        status=record["status"] or "open",
+        submitted_by=record["submitted_by"],
+        created_at=_coerce_neo4j_dt(record["created_at"]),
+    )
+
+
+class _PatchTaskRequest(BaseModel):
+    status: str
+
+
+_ENRICHMENT_TASK_PATCH_CYPHER = """\
+MATCH (t:EnrichmentTask {id: $task_id})
+SET t.status = $new_status
+RETURN t.id              AS task_id,
+       t.question_text   AS question_text,
+       t.confidence_score AS confidence_score,
+       t.source         AS source,
+       t.status         AS status,
+       t.submitted_by   AS submitted_by,
+       t.created_at     AS created_at
+LIMIT 1
+"""
+
+_ALLOWED_TASK_STATUSES = {"open", "resolved"}
+
+
+@router.patch("/enrichment/tasks/{task_id}", response_model=EnrichmentTaskItem)
+async def patch_enrichment_task_endpoint(
+    request: _PatchTaskRequest,
+    task_id: str = Path(..., pattern=r"^[\w-]{1,128}$"),
+    current_user: tuple[str, list[str]] = Depends(require_role("knowledge_engineer")),
+) -> EnrichmentTaskItem:
+    """Update EnrichmentTask status. Requires knowledge_engineer role."""
+    if request.status not in _ALLOWED_TASK_STATUSES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"status must be one of {sorted(_ALLOWED_TASK_STATUSES)}",
+        )
+    neo4j = conn.get_neo4j()
+    async with neo4j.driver.session() as session:
+        result = await session.run(
+            _ENRICHMENT_TASK_PATCH_CYPHER,
+            task_id=task_id,
+            new_status=request.status,
+        )
         record = await result.single()
 
     if record is None:
