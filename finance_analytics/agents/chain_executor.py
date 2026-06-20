@@ -20,6 +20,7 @@ from finance_analytics.execution.cypher import fetch_kg_context
 from finance_analytics.execution.python_executor import execute_solver
 from finance_analytics.execution.sql import execute_sql
 from finance_analytics.llm import get_llm
+from finance_analytics.schemas.agent_outputs import CypherContextOutput
 from finance_analytics.schemas.agent_state import AgentState
 
 # ── Text-to-Cypher ─────────────────────────────────────────────────────────────
@@ -29,8 +30,16 @@ async def text_to_cypher_node(state: AgentState) -> dict:
 
     Stores result in AgentState.cypher_context so text_to_sql_node can inject
     it into the SQL generation prompt.
+
+    Fast-path: if the Refiner found no domain terms, skip Neo4j entirely and
+    return an empty context. Saves ~200ms cold-cache Neo4j round-trip for simple
+    aggregation questions that have no matching business rules.
     """
     refiner_output = state["refiner_output"]
+    if not refiner_output.domain_terms:
+        return {"cypher_context": CypherContextOutput(
+            business_rules=[], known_anomalies=[], concepts=[], cypher_used=""
+        )}
     cypher_context = await fetch_kg_context(
         domain_terms=refiner_output.domain_terms,
         user_roles=state.get("user_roles", []),

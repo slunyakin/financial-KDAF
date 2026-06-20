@@ -64,7 +64,7 @@ export async function POST(req: NextRequest) {
         const { done, value } = await reader.read();
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
-        const chunks = buffer.split("\n\n");
+        const chunks = buffer.replace(/\r\n/g, "\n").split("\n\n");
         buffer = chunks.pop() ?? "";
 
         for (const chunk of chunks) {

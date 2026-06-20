@@ -262,3 +262,40 @@ async def enrichment_tasks_endpoint(
         for r in records
     ]
     return EnrichmentTasksResponse(items=items, total=total)
+
+
+_ENRICHMENT_TASK_BY_ID_CYPHER = """\
+MATCH (t:EnrichmentTask {id: $task_id})
+RETURN elementId(t) AS task_id,
+       t.question_text  AS question_text,
+       t.confidence_score AS confidence_score,
+       t.source         AS source,
+       t.status         AS status,
+       t.submitted_by   AS submitted_by,
+       t.created_at     AS created_at
+"""
+
+
+@router.get("/enrichment/tasks/{task_id}", response_model=EnrichmentTaskItem)
+async def get_enrichment_task_endpoint(
+    task_id: str,
+    current_user: tuple[str, list[str]] = Depends(require_role("knowledge_engineer")),
+) -> EnrichmentTaskItem:
+    """Fetch a single EnrichmentTask by ID. Requires knowledge_engineer role."""
+    neo4j = conn.get_neo4j()
+    async with neo4j.driver.session() as session:
+        result = await session.run(_ENRICHMENT_TASK_BY_ID_CYPHER, task_id=task_id)
+        record = await result.single()
+
+    if record is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    return EnrichmentTaskItem(
+        task_id=record["task_id"],
+        question_text=record["question_text"] or "",
+        confidence_score=record["confidence_score"],
+        source=record["source"] or "unknown",
+        status=record["status"] or "open",
+        submitted_by=record["submitted_by"],
+        created_at=_coerce_neo4j_dt(record["created_at"]),
+    )

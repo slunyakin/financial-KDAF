@@ -17,12 +17,21 @@ test.describe("Task detail page", () => {
     await page.goto("/login");
     await page.evaluate((t) => localStorage.setItem("kdaf_token", t), TOKEN);
 
-    // Task list used to resolve the task from taskId
+    // Playwright route handlers are LIFO — register glob first so the specific
+    // single-task route (registered last) takes precedence.
     await page.route("/api/v1/enrichment/tasks**", (route) =>
       route.fulfill({
         status: 200,
         contentType: "application/json",
         body: JSON.stringify({ api_version: "1", items: [TASK], total: 1 }),
+      })
+    );
+    // Single-task endpoint must be registered LAST to win over the glob above.
+    await page.route("/api/v1/enrichment/tasks/task-001", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(TASK),
       })
     );
   });
@@ -222,5 +231,40 @@ test.describe("Task detail page", () => {
     await page.getByRole("button", { name: /preview/i }).click();
     await page.getByRole("button", { name: /commit to kg/i }).click();
     await expect(page.getByText(/Return to the task list/i)).toBeVisible();
+  });
+
+  // ── taskId validation + single-task endpoint ─────────────────────────────
+
+  test("invalid taskId shows error state and makes no API call", async ({ page }) => {
+    let apiCallMade = false;
+    await page.route("/api/v1/**", () => { apiCallMade = true; });
+
+    // Use a taskId with a dot — not in [\w-], so the regex rejects it,
+    // but it's a normal URL segment that Next.js routes without issue.
+    await page.goto("/enrichment/task.invalid");
+
+    await expect(page.getByText(/invalid task id/i)).toBeVisible({ timeout: 3000 });
+    expect(apiCallMade).toBe(false);
+  });
+
+  test("valid taskId fetches single-task endpoint, not the list", async ({ page }) => {
+    let listEndpointHit = false;
+    let singleEndpointHit = false;
+
+    await page.route("/api/v1/enrichment/tasks?**", () => { listEndpointHit = true; });
+    await page.route("/api/v1/enrichment/tasks/task-001", (route) => {
+      singleEndpointHit = true;
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(TASK),
+      });
+    });
+
+    await page.goto("/enrichment/task-001");
+    await expect(page.getByText("What is the revenue trend for Q3?").first()).toBeVisible();
+
+    expect(singleEndpointHit).toBe(true);
+    expect(listEndpointHit).toBe(false);
   });
 });

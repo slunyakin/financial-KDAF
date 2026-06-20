@@ -38,6 +38,14 @@ export async function fetchTasks(status: "open" | "resolved" | "all" = "open"): 
   return res.json();
 }
 
+export async function getTask(taskId: string): Promise<EnrichmentTask> {
+  const res = await fetch(`${BASE}/enrichment/tasks/${encodeURIComponent(taskId)}`, {
+    headers: { Authorization: `Bearer ${getToken()}` },
+  });
+  if (!res.ok) throw new Error(`getTask: ${res.status} ${await res.text()}`);
+  return res.json();
+}
+
 export async function resolveTask(taskId: string): Promise<EnrichmentTask> {
   const res = await fetch(`${BASE}/enrichment/tasks/${taskId}`, {
     method: "PATCH",

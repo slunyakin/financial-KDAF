@@ -586,3 +586,84 @@ def test_enrichment_tasks_endpoint_depends_on_require_role():
     assert exc_info.value.status_code == 403
     assert "knowledge_engineer" in exc_info.value.detail
 
+
+# ── GET /enrichment/tasks/{task_id} ──────────────────────────────────────────
+
+def _make_single_task_session_mock(record):
+    session = AsyncMock()
+    session.__aenter__ = AsyncMock(return_value=session)
+    session.__aexit__ = AsyncMock(return_value=False)
+    result = AsyncMock()
+    result.single = AsyncMock(return_value=record)
+    session.run = AsyncMock(return_value=result)
+    return session
+
+
+@pytest.mark.asyncio
+async def test_get_enrichment_task_returns_task_for_valid_id():
+    from datetime import datetime, timezone
+    from finance_analytics.api.routes import get_enrichment_task_endpoint
+
+    dt = datetime(2026, 6, 20, tzinfo=timezone.utc)
+    record = {
+        "task_id": "4:abc:0",
+        "question_text": "What is the revenue trend?",
+        "confidence_score": 0.45,
+        "source": "query",
+        "status": "open",
+        "submitted_by": "dev-analyst",
+        "created_at": _make_fake_neo4j_dt(dt),
+    }
+    session_mock = _make_single_task_session_mock(record)
+    neo4j_mock = MagicMock()
+    neo4j_mock.driver.session.return_value = session_mock
+
+    with patch("finance_analytics.api.routes.conn") as mock_conn:
+        mock_conn.get_neo4j.return_value = neo4j_mock
+        item = await get_enrichment_task_endpoint(
+            task_id="abc123",
+            current_user=("user-1", ["knowledge_engineer"]),
+        )
+
+    assert item.task_id == "4:abc:0"
+    assert item.question_text == "What is the revenue trend?"
+    assert item.status == "open"
+
+
+@pytest.mark.asyncio
+async def test_get_enrichment_task_returns_404_for_unknown_id():
+    from finance_analytics.api.routes import get_enrichment_task_endpoint
+
+    session_mock = _make_single_task_session_mock(None)
+    neo4j_mock = MagicMock()
+    neo4j_mock.driver.session.return_value = session_mock
+
+    with patch("finance_analytics.api.routes.conn") as mock_conn:
+        mock_conn.get_neo4j.return_value = neo4j_mock
+        with pytest.raises(HTTPException) as exc_info:
+            await get_enrichment_task_endpoint(
+                task_id="does-not-exist",
+                current_user=("user-1", ["knowledge_engineer"]),
+            )
+
+    assert exc_info.value.status_code == 404
+    assert "not found" in exc_info.value.detail.lower()
+
+
+@pytest.mark.asyncio
+async def test_get_enrichment_task_raises_403_for_wrong_role():
+    from finance_analytics.api.routes import get_enrichment_task_endpoint
+
+    from fastapi import params
+
+    sig = get_enrichment_task_endpoint.__wrapped__ if hasattr(get_enrichment_task_endpoint, "__wrapped__") else get_enrichment_task_endpoint
+    import inspect
+    parameters = inspect.signature(sig).parameters
+    current_user_param = parameters.get("current_user")
+    assert current_user_param is not None
+    default = current_user_param.default
+    assert isinstance(default, params.Depends)
+    with pytest.raises(HTTPException) as exc_info:
+        default.dependency(current_user=("user-1", ["analyst"]))
+    assert exc_info.value.status_code == 403
+

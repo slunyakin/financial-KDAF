@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { AssistantRuntimeProvider } from "@assistant-ui/react";
 import { AssistantChatTransport, useChatRuntime } from "@assistant-ui/react-ai-sdk";
 import { Thread } from "@/components/assistant-ui/thread";
-import { getToken, graphWrite, resolveTask, type EnrichmentTask } from "@/lib/api";
+import { getTask, getToken, graphWrite, resolveTask, type EnrichmentTask } from "@/lib/api";
 
 // ── write-back panel ──────────────────────────────────────────────────────────
 
@@ -88,20 +88,14 @@ export default function TaskDetailPage() {
   const [task, setTask] = useState<EnrichmentTask | null>(null);
   const [resolved, setResolved] = useState(false);
   const [resolvedElementId, setResolvedElementId] = useState<string | null>(null);
+  const [invalidId, setInvalidId] = useState(false);
 
   useEffect(() => {
-    fetch(`/api/v1/enrichment/tasks?status=all&limit=200`, {
-      headers: { Authorization: `Bearer ${getToken()}` },
-    })
-      .then((r) => r.json())
-      .then((data) => {
-        const decoded = decodeURIComponent(taskId);
-        const found = data.items?.find(
-          (t: EnrichmentTask) => t.task_id === decoded || t.task_id === taskId
-        );
-        if (found) setTask(found);
-      })
-      .catch(console.error);
+    if (!/^[\w-]+$/.test(taskId)) {
+      setInvalidId(true);
+      return;
+    }
+    getTask(taskId).then(setTask).catch(console.error);
   }, [taskId]);
 
   const transport = useMemo(
@@ -122,6 +116,14 @@ export default function TaskDetailPage() {
     ),
     [welcome],
   );
+
+  if (invalidId) {
+    return (
+      <div className="h-screen flex items-center justify-center">
+        <p className="text-destructive text-sm">Invalid task ID.</p>
+      </div>
+    );
+  }
 
   return (
     <AssistantRuntimeProvider runtime={runtime}>
