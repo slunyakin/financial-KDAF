@@ -605,8 +605,9 @@ async def test_get_enrichment_task_returns_task_for_valid_id():
     from finance_analytics.api.routes import get_enrichment_task_endpoint
 
     dt = datetime(2026, 6, 20, tzinfo=timezone.utc)
+    sha256_id = "a" * 64  # sha256 hex — t.id property returned by the Cypher query
     record = {
-        "task_id": "4:abc:0",
+        "task_id": sha256_id,
         "question_text": "What is the revenue trend?",
         "confidence_score": 0.45,
         "source": "query",
@@ -621,11 +622,11 @@ async def test_get_enrichment_task_returns_task_for_valid_id():
     with patch("finance_analytics.api.routes.conn") as mock_conn:
         mock_conn.get_neo4j.return_value = neo4j_mock
         item = await get_enrichment_task_endpoint(
-            task_id="abc123",
+            task_id=sha256_id,
             current_user=("user-1", ["knowledge_engineer"]),
         )
 
-    assert item.task_id == "4:abc:0"
+    assert item.task_id == sha256_id
     assert item.question_text == "What is the revenue trend?"
     assert item.status == "open"
 

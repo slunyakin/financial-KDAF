@@ -47,7 +47,7 @@ export async function getTask(taskId: string): Promise<EnrichmentTask> {
 }
 
 export async function resolveTask(taskId: string): Promise<EnrichmentTask> {
-  const res = await fetch(`${BASE}/enrichment/tasks/${taskId}`, {
+  const res = await fetch(`${BASE}/enrichment/tasks/${encodeURIComponent(taskId)}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
     body: JSON.stringify({ status: "resolved" }),

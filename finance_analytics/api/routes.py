@@ -173,7 +173,7 @@ RETURN elementId(t) AS element_id
 _ENRICHMENT_TASKS_CYPHER = """\
 MATCH (t:EnrichmentTask)
 WHERE $status = 'all' OR t.status = $status
-RETURN elementId(t)   AS task_id,
+RETURN t.id            AS task_id,
        t.question_text AS question_text,
        t.confidence_score AS confidence_score,
        t.source        AS source,
@@ -266,8 +266,8 @@ async def enrichment_tasks_endpoint(
 
 _ENRICHMENT_TASK_BY_ID_CYPHER = """\
 MATCH (t:EnrichmentTask {id: $task_id})
-RETURN elementId(t) AS task_id,
-       t.question_text  AS question_text,
+RETURN t.id              AS task_id,
+       t.question_text   AS question_text,
        t.confidence_score AS confidence_score,
        t.source         AS source,
        t.status         AS status,
