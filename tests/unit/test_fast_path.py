@@ -20,16 +20,13 @@ def _make_state(domain_terms: list[str]) -> AgentState:
             max_retries=2,
         ),
         cypher_context=None,
-        sql_query=None,
-        sql_rows=None,
-        solver_code=None,
-        solver_result=None,
-        reflection=None,
+        sql_result=None,
+        python_result=None,
+        reflection_output=None,
         retry_count=0,
         context_notes=[],
         user_id="dev-analyst",
         user_roles=["analyst"],
-        enrichment_task_id=None,
     )
 
 

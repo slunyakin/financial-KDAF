@@ -668,3 +668,123 @@ async def test_get_enrichment_task_raises_403_for_wrong_role():
         default.dependency(current_user=("user-1", ["analyst"]))
     assert exc_info.value.status_code == 403
 
+
+@pytest.mark.asyncio
+async def test_get_enrichment_task_propagates_driver_exception():
+    """session.run() raising must propagate out (FastAPI converts to HTTP 500)."""
+    from finance_analytics.api.routes import get_enrichment_task_endpoint
+
+    session = AsyncMock()
+    session.__aenter__ = AsyncMock(return_value=session)
+    session.__aexit__ = AsyncMock(return_value=False)
+    session.run = AsyncMock(side_effect=RuntimeError("Neo4j unavailable"))
+    neo4j_mock = MagicMock()
+    neo4j_mock.driver.session.return_value = session
+
+    with patch("finance_analytics.api.routes.conn") as mock_conn:
+        mock_conn.get_neo4j.return_value = neo4j_mock
+        with pytest.raises(RuntimeError, match="Neo4j unavailable"):
+            await get_enrichment_task_endpoint(
+                task_id="any-id",
+                current_user=("user-1", ["knowledge_engineer"]),
+            )
+
+
+@pytest.mark.asyncio
+async def test_get_enrichment_task_null_created_at_coerced():
+    """created_at=None must pass through _coerce_neo4j_dt as None, not raise."""
+    from finance_analytics.api.routes import get_enrichment_task_endpoint
+
+    sha256_id = "b" * 64
+    record = {
+        "task_id": sha256_id,
+        "question_text": "Null date task",
+        "confidence_score": None,
+        "source": "manual",
+        "status": "open",
+        "submitted_by": None,
+        "created_at": None,
+    }
+    session_mock = _make_single_task_session_mock(record)
+    neo4j_mock = MagicMock()
+    neo4j_mock.driver.session.return_value = session_mock
+
+    with patch("finance_analytics.api.routes.conn") as mock_conn:
+        mock_conn.get_neo4j.return_value = neo4j_mock
+        item = await get_enrichment_task_endpoint(
+            task_id=sha256_id,
+            current_user=("user-1", ["knowledge_engineer"]),
+        )
+
+    assert item.created_at is None
+    assert item.submitted_by is None
+
+
+# ── PATCH /enrichment/tasks/{task_id} ────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_patch_enrichment_task_resolves_open_task():
+    from finance_analytics.api.routes import patch_enrichment_task_endpoint, _PatchTaskRequest
+
+    sha256_id = "c" * 64
+    record = {
+        "task_id": sha256_id,
+        "question_text": "Revenue gap?",
+        "confidence_score": 0.4,
+        "source": "query",
+        "status": "resolved",
+        "submitted_by": "dev-analyst",
+        "created_at": None,
+    }
+    session_mock = _make_single_task_session_mock(record)
+    neo4j_mock = MagicMock()
+    neo4j_mock.driver.session.return_value = session_mock
+
+    with patch("finance_analytics.api.routes.conn") as mock_conn:
+        mock_conn.get_neo4j.return_value = neo4j_mock
+        item = await patch_enrichment_task_endpoint(
+            request=_PatchTaskRequest(status="resolved"),
+            task_id=sha256_id,
+            current_user=("user-1", ["knowledge_engineer"]),
+        )
+
+    assert item.task_id == sha256_id
+    assert item.status == "resolved"
+    session_mock.run.assert_awaited_once()
+    call_kwargs = session_mock.run.call_args[1]
+    assert call_kwargs.get("new_status") == "resolved"
+
+
+@pytest.mark.asyncio
+async def test_patch_enrichment_task_rejects_invalid_status():
+    from finance_analytics.api.routes import patch_enrichment_task_endpoint, _PatchTaskRequest
+
+    with pytest.raises(HTTPException) as exc_info:
+        await patch_enrichment_task_endpoint(
+            request=_PatchTaskRequest(status="deleted"),
+            task_id="any-id",
+            current_user=("user-1", ["knowledge_engineer"]),
+        )
+
+    assert exc_info.value.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_patch_enrichment_task_returns_404_for_unknown_id():
+    from finance_analytics.api.routes import patch_enrichment_task_endpoint, _PatchTaskRequest
+
+    session_mock = _make_single_task_session_mock(None)
+    neo4j_mock = MagicMock()
+    neo4j_mock.driver.session.return_value = session_mock
+
+    with patch("finance_analytics.api.routes.conn") as mock_conn:
+        mock_conn.get_neo4j.return_value = neo4j_mock
+        with pytest.raises(HTTPException) as exc_info:
+            await patch_enrichment_task_endpoint(
+                request=_PatchTaskRequest(status="resolved"),
+                task_id="does-not-exist",
+                current_user=("user-1", ["knowledge_engineer"]),
+            )
+
+    assert exc_info.value.status_code == 404
+
