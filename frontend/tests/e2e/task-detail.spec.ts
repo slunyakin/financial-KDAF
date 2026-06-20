@@ -233,11 +233,19 @@ test.describe("Task detail page", () => {
     await expect(page.getByText(/Return to the task list/i)).toBeVisible();
   });
 
+  test("getTask API error shows fetch error state", async ({ page }) => {
+    await page.route("/api/v1/enrichment/tasks/task-001", (route) =>
+      route.fulfill({ status: 500, body: "Internal Server Error" })
+    );
+    await page.goto("/enrichment/task-001");
+    await expect(page.getByText(/failed to load task/i)).toBeVisible({ timeout: 3000 });
+  });
+
   // ── taskId validation + single-task endpoint ─────────────────────────────
 
   test("invalid taskId shows error state and makes no API call", async ({ page }) => {
     let apiCallMade = false;
-    await page.route("/api/v1/**", () => { apiCallMade = true; });
+    await page.route("/api/v1/**", (route) => { apiCallMade = true; route.abort(); });
 
     // Use a taskId with a dot — not in [\w-], so the regex rejects it,
     // but it's a normal URL segment that Next.js routes without issue.

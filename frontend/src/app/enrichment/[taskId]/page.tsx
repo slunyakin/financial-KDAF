@@ -89,13 +89,16 @@ export default function TaskDetailPage() {
   const [resolved, setResolved] = useState(false);
   const [resolvedElementId, setResolvedElementId] = useState<string | null>(null);
   const [invalidId, setInvalidId] = useState(false);
+  const [fetchError, setFetchError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!/^[\w-]+$/.test(taskId)) {
       setInvalidId(true);
       return;
     }
-    getTask(taskId).then(setTask).catch(console.error);
+    getTask(taskId).then(setTask).catch((e: unknown) => {
+      setFetchError(e instanceof Error ? e.message : String(e));
+    });
   }, [taskId]);
 
   const transport = useMemo(
@@ -121,6 +124,14 @@ export default function TaskDetailPage() {
     return (
       <div className="h-screen flex items-center justify-center">
         <p className="text-destructive text-sm">Invalid task ID.</p>
+      </div>
+    );
+  }
+
+  if (fetchError) {
+    return (
+      <div className="h-screen flex items-center justify-center">
+        <p className="text-destructive text-sm">Failed to load task: {fetchError}</p>
       </div>
     );
   }
