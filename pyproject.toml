@@ -67,3 +67,9 @@ include = ["finance_analytics*"]
 python_version = "3.11"
 strict = true
 ignore_missing_imports = true
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+]
