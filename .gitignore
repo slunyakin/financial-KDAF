@@ -56,4 +56,7 @@ logs/
 # OS-specific
 Thumbs.db
 
+# Agent instructions (local-only)
+CLAUDE.md
+
 
