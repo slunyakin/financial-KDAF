@@ -1,20 +1,17 @@
 # financial-KDAF
 
-A freshly initialized repository. This README provides a starting point for documentation.
+**Status: archived predecessor.** This repository was the prototyping and research ground for [FPA-KDAF](https://github.com/slunyakin/FPA-KDAF), active from October 2025 through mid-2026. It has been superseded by FPA-KDAF, which is the actively maintained project. This repo is kept public for provenance — to preserve the design history, architecture decisions, and early implementation that led to FPA-KDAF.
 
-## Getting started
+**Do not build on this repository.** For current development, issues, and documentation, go to [FPA-KDAF](https://github.com/slunyakin/FPA-KDAF).
 
-- Clone the repository
-- Open in your editor
-- Adjust the `.gitignore` entries as needed for your stack
+## What this was
 
-## Project structure
+financial-KDAF explored a knowledge-based finance analytics system: natural-language queries translated into SQL and Cypher, orchestrated across multiple specialized agents (Supervisor, Refiner, Text-to-Cypher, Text-to-SQL, Python solver, Validator, Reflection) against a Neo4j knowledge graph and a connector-agnostic data lake interface.
 
-The layout will evolve as code is added. Consider adding sections here for:
+The architecture decisions made here — hybrid direct-driver/MCP routing, Neo4j as the knowledge graph source of truth, sequential Cypher-then-SQL execution, the Python subprocess sandbox — are recorded in `docs/adr/` and carried forward into FPA-KDAF.
 
-- Tech stack and requirements
-- Development scripts and how to run
-- Testing and linting
-- Deployment instructions
+## Provenance
 
-
+- **Active:** October 2025 – mid-2026
+- **Superseded by:** [FPA-KDAF](https://github.com/slunyakin/FPA-KDAF)
+- **Kept for:** commit history, ADRs, and early implementation reference
